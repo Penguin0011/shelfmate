@@ -11,3 +11,12 @@ urlpatterns = [
     path('api/boxes/<int:number>/flags/', v.flag_create),
     path('api/flags/', v.flags), path('api/flags/<int:pk>/', v.flag_edit),
 ]
+from inventory import draft_views as d
+urlpatterns += [
+    path('api/boxes/<int:number>/drafts/', d.create),
+    path('api/drafts/', d.listing), path('api/drafts/<uuid:pk>/', d.detail),
+    path('api/drafts/<uuid:pk>/save/', d.save), path('api/drafts/<uuid:pk>/cancel/', d.cancel),
+    path('api/drafts/<uuid:pk>/photos/<int:index>/', d.photo),
+]
+from inventory import ai_views as a
+urlpatterns += [path('api/drafts/<uuid:pk>/analyze/', a.analyze), path('api/search/ai/', a.search)]

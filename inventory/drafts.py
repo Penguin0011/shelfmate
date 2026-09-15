@@ -1,0 +1,145 @@
+import io
+import shutil
+import uuid
+import warnings
+from pathlib import Path
+from django.conf import settings
+from django.db import transaction
+from django.utils import timezone
+from PIL import Image, ImageOps, UnidentifiedImageError
+from .models import Draft, Item
+from .validation import Invalid, entries
+
+Image.MAX_IMAGE_PIXELS = 25_000_000
+
+
+def directory(draft):
+    return Path(settings.PHOTO_ROOT) / str(draft.pk)
+
+
+def cleanup_files(draft):
+    try:
+        shutil.rmtree(directory(draft))
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return False
+    Draft.objects.filter(pk=draft.pk).update(files=[])
+    return True
+
+
+def upload(owner, box, photos):
+    if not 1 <= len(photos) <= 4 or sum(p.size for p in photos) > 25 * 1024 * 1024:
+        raise Invalid('Upload 1–4 photos, at most 25 MB total')
+    draft = Draft(owner=owner, box=box)
+    folder = directory(draft)
+    folder.mkdir(mode=0o700, parents=True)
+    normalized = 0
+    try:
+        for photo in photos:
+            if photo.size > 10 * 1024 * 1024:
+                raise Invalid('Each photo must be at most 10 MB')
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter('error', Image.DecompressionBombWarning)
+                    with Image.open(photo) as source:
+                        if source.format not in ('JPEG', 'PNG'):
+                            raise Invalid('Use JPEG or PNG; convert HEIC before uploading')
+                        source.load()
+                        converted = ImageOps.exif_transpose(source).convert('RGB')
+                        converted.thumbnail((1800, 1800))
+                        # A fresh image excludes EXIF, comments, and other source metadata.
+                        clean = Image.new('RGB', converted.size)
+                        clean.paste(converted)
+                        out = io.BytesIO()
+                        clean.save(out, format='JPEG', quality=85)
+                payload = out.getvalue()
+            except (UnidentifiedImageError, OSError, Image.DecompressionBombError, Image.DecompressionBombWarning, ValueError):
+                raise Invalid('Invalid or oversized image; use JPEG or PNG')
+            normalized += len(payload)
+            if normalized > 8 * 1024 * 1024:
+                raise Invalid('Normalized images exceed 8 MB; use fewer photos')
+            filename = f'{uuid.uuid4().hex}.jpg'
+            (folder / filename).write_bytes(payload)
+            (folder / filename).chmod(0o600)
+            draft.files.append(filename)
+        draft.save()
+        return draft
+    except BaseException:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    finally:
+        for photo in photos:
+            photo.close()
+
+
+def open_draft(draft):
+    if draft.state != 'open' or draft.expires_at <= timezone.now():
+        raise Invalid('Draft is closed or expired')
+
+
+def update(draft_id, owner, revision, proposed):
+    proposed = entries(proposed)
+    with transaction.atomic():
+        draft = Draft.objects.get(pk=draft_id, owner=owner)
+        open_draft(draft)
+        if revision != draft.revision:
+            raise Invalid('Draft changed; reload before editing')
+        draft.entries = proposed
+        draft.revision += 1
+        draft.analysis_token = None
+        draft.analyzing_until = None
+        draft.save()
+    return draft
+
+
+def save(draft_id, owner, revision):
+    with transaction.atomic():
+        draft = Draft.objects.select_related('box').get(pk=draft_id, owner=owner)
+        if draft.state == 'saved':
+            return draft.receipt
+        open_draft(draft)
+        if revision != draft.revision:
+            raise Invalid('Draft changed; reload before saving')
+        if draft.box.retired:
+            raise Invalid('Box is retired')
+        proposed = entries(draft.entries)
+        if not proposed:
+            raise Invalid('Add at least one item before saving')
+        draft.receipt = [Item.objects.create(box=draft.box, draft=draft, draft_row=n, **row).pk for n, row in enumerate(proposed)]
+        draft.state = 'saved'
+        draft.entries = []
+        draft.analysis_token = None
+        draft.analyzing_until = None
+        draft.revision += 1
+        draft.save()
+        transaction.on_commit(lambda: cleanup_files(draft))
+    return draft.receipt
+
+
+def cancel(draft_id, owner):
+    with transaction.atomic():
+        draft = Draft.objects.get(pk=draft_id, owner=owner)
+        if draft.state == 'saved':
+            raise Invalid('Already saved; edit inventory instead')
+        draft.state, draft.entries = 'cancelled', []
+        draft.analysis_token = None
+        draft.analyzing_until = None
+        draft.revision += 1
+        draft.save()
+        transaction.on_commit(lambda: cleanup_files(draft))
+
+
+def cleanup():
+    now = timezone.now()
+    Draft.objects.filter(state='open', expires_at__lte=now).update(state='expired', entries=[], analysis_token=None, analyzing_until=None)
+    count = 0
+    for draft in Draft.objects.exclude(state='open'):
+        count += cleanup_files(draft)
+    root = Path(settings.PHOTO_ROOT)
+    if root.exists():
+        known = set(str(pk) for pk in Draft.objects.values_list('pk', flat=True))
+        for path in root.iterdir():
+            if path.is_dir() and path.name not in known and path.stat().st_mtime < now.timestamp() - 86400:
+                shutil.rmtree(path)
+    return count
