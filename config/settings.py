@@ -50,6 +50,9 @@ NVIDIA_MODEL = os.getenv('NVIDIA_MODEL', 'nvidia/nemotron-3-nano-omni-30b-a3b-re
 # Vision replies arrive in one piece after generation, so these budgets cover think-and-generate,
 # not just the network. Measured on four 1536px photos: 19-48 s end to end, including failover
 # when NVIDIA rate-limits. The old 25 s ceiling sat inside that spread, so analysis failed at random.
-# The stack must stay ordered: provider < provider+grace < total < analyzing lock < gunicorn timeout.
-AI_PROVIDER_TIMEOUT = int(os.getenv('AI_PROVIDER_TIMEOUT', '60'))
-AI_TOTAL_TIMEOUT = int(os.getenv('AI_TOTAL_TIMEOUT', '130'))
+# The ceiling is the openresty proxy in front of us, whose proxy_read_timeout defaults to 60 s: past
+# that the client gets a gateway 504 whose body is not JSON, losing the "your draft is kept" message.
+# So the total stays under 60 s. Raising these means raising proxy_read_timeout on the proxy first.
+# Keep the stack ordered: provider < provider+grace < total < analyzing lock < gunicorn < proxy.
+AI_PROVIDER_TIMEOUT = int(os.getenv('AI_PROVIDER_TIMEOUT', '45'))
+AI_TOTAL_TIMEOUT = int(os.getenv('AI_TOTAL_TIMEOUT', '55'))

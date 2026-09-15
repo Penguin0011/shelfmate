@@ -190,11 +190,12 @@ if(state.draft) {
   // The model returns nothing until it has finished reading every photo, so show the wait next to
   // the button that started it. Silence for 30-60 seconds is what reads as a broken server.
   let ticker;
+  // Thresholds track the server's AI budget (settings.AI_TOTAL_TIMEOUT, 55 s); typical runs finish near 20 s.
   function stage(seconds,count){
-    if(seconds<15)return `Uploading ${count} photo${count===1?'':'s'} to the AI model…`;
-    if(seconds<40)return 'Reading the photos and naming what it sees…';
-    if(seconds<90)return 'Still working. Detailed photos take longer — your draft is safe.';
-    return 'Nearly at the time limit. If this fails, your photos and draft are kept.';
+    if(seconds<10)return `Sending ${count} photo${count===1?'':'s'} to the AI model…`;
+    if(seconds<30)return 'Reading the photos and naming what it sees…';
+    if(seconds<50)return 'Still working. Busy models take longer — your draft is safe.';
+    return 'Almost at the time limit. If this fails, your photos and draft are kept.';
   }
   async function analyze(){
     if(busy)return;
