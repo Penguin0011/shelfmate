@@ -248,3 +248,22 @@ class DraftJourneyTests(TestCase):
             result=self.client.get('/api/search/?q=16%20mm').json()['items'][0]
             self.assertEqual(result['box'],12)
             self.assertEqual(post('/api/boxes/12/flags/',{'item':result['id'],'reason':'taken'}).status_code,201)
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class InterfaceTests(TestCase):
+    def test_household_pages_escape_data_and_hide_owner_controls(self):
+        box=Box.objects.create(number=12,category='<script>alert(1)</script>')
+        Item.objects.create(box=box,name='<img src=x onerror=alert(1)>')
+        result=self.client.get('/box/12')
+        self.assertEqual(result.status_code,200)
+        self.assertContains(result,'&lt;script&gt;')
+        self.assertNotContains(result,'<script>alert(1)</script>')
+        self.assertNotContains(result,'data-action="edit-box"')
+        self.assertEqual(self.client.get('/api/boxes/12/').json()['number'],12)
+        self.assertEqual(self.client.get('/flags').status_code,302)
+    def test_owner_pages_and_empty_index(self):
+        self.assertContains(self.client.get('/'),'A fresh start.')
+        owner=get_user_model().objects.create_user('interface',is_staff=True)
+        self.client.force_login(owner)
+        self.assertContains(self.client.get('/'),'data-action="new-box"')
+        self.assertContains(self.client.get('/flags'),'All caught up.')

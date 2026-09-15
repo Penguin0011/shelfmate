@@ -1,10 +1,11 @@
 from django.urls import path
 from inventory import views as v
+from inventory import ui
 urlpatterns = [
-    path('', v.boxes), path('health/', v.health), path('api/session/', v.session),
+    path('', ui.page), path('health/', v.health), path('api/session/', v.session),
     path('api/login/', v.sign_in), path('api/logout/', v.sign_out),
     path('api/boxes/', v.boxes), path('api/boxes/create/', v.box_create),
-    path('box/<int:number>', v.box_detail),
+    path('box/<int:number>', ui.page), path('api/boxes/<int:number>/', v.box_detail),
     path('api/boxes/<int:number>/edit/', v.box_edit),
     path('api/search/', v.search), path('api/items/create/', v.item_create),
     path('api/items/<int:pk>/edit/', v.item_edit),
@@ -20,3 +21,5 @@ urlpatterns += [
 ]
 from inventory import ai_views as a
 urlpatterns += [path('api/drafts/<uuid:pk>/analyze/', a.analyze), path('api/search/ai/', a.search)]
+
+urlpatterns += [path('flags', ui.page, {'screen':'inbox'}), path('drafts/<uuid:draft_id>', ui.page)]

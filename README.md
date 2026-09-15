@@ -1,6 +1,6 @@
 # Box inventory backend
 
-Django/SQLite backend for personal inventory, household viewing/flags, temporary photo review, and NVIDIA AI with `openrouter/free` fallback. UI styling and phone workflows are intentionally awaiting the user's design. No VM deployment has occurred. [Certain]
+Django/SQLite backend for personal inventory, household viewing/flags, temporary photo review, and NVIDIA AI with `openrouter/free` fallback. The responsive UI follows the supplied warm-paper mockup, with real owner sign-in, inventory search, flags, and photo review. No VM deployment has occurred. [Certain]
 
 ## Run locally
 
@@ -28,7 +28,8 @@ All request/response bodies are JSON except multipart photo uploads. Fetch `GET 
 | POST `/api/login/` | Household | `username`, `password` |
 | POST `/api/logout/` | Household | End session |
 | GET `/api/boxes/` | Household | Active box numbers/categories/revisions |
-| GET `/box/12` | Household | Flat contents and current box details; UI will render this NFC URL |
+| GET `/box/12` | Household | Server-rendered box page at its permanent NFC URL |
+| GET `/api/boxes/12/` | Household | Flat contents and current box details as JSON |
 | GET `/api/search/?q=M3` | Household | Local name/description/alias search |
 | POST `/api/search/ai/` | Household | `question`; possible matches with current box locations |
 | POST `/api/boxes/create/` | Owner | Positive `number`, `category` |
@@ -89,7 +90,7 @@ The destination must not exist. The command uses SQLite's backup API, removes dr
 
 ## Pending acceptance
 
-- User-provided visual design and front-end forms, draft autosave UI, and native phone testing.
+- Native iPhone Safari camera/HEIC behavior and physical device testing.
 - Real household recognition quality and free-router consistency.
 - VM/reverse-proxy/DNS/TLS and physical NFC-tag verification.
 - Production backup destination, schedule, retention, and remote restoration.
@@ -99,3 +100,11 @@ The destination must not exist. The command uses SQLite's backup API, removes dr
 The backend behavior suite, real-file two-process save check, and SQLite backup/restore integrity check passed locally. Direct synthetic-image requests to NVIDIA Nemotron 3 Nano Omni and OpenRouter free router returned valid structured results; the automatic path also passed. [Certain] NVIDIA initially returned capacity errors, so this is proof of working integration, not guaranteed availability or household-item accuracy. [Certain]
 
 The originally planned NVIDIA model returned HTTP 410 retirement and was replaced with the configurable NVIDIA_MODEL default above. [Certain] Production Django checks report only optional HSTS subdomain/preload warnings; leave those domain-wide choices to verified deployment. [Certain]
+
+## Interface and browser checks
+
+The interface uses the supplied HTML as a visual reference: warm paper backgrounds, dark rules, condensed labels, colored dots, and geometric footer shapes. The bundled Archivo fonts are extracted from that supplied reference and served locally; no external font service or prototype runtime is required. [Certain] The original mockup remains unchanged. [Certain]
+
+All inventory and permissions come from the backend. New installations start empty. Owner dialogs support creating boxes, editing/moving/deleting items, photo uploads, and flag resolution. Photo review supports manual editing, removal, combining entries, revisioned autosave, and recoverable failures.
+
+Run `node scripts/check_ui.cjs` with Playwright available (set PLAYWRIGHT_MODULE to its module path if needed) and Google Chrome installed. The script creates a temporary database and local server, exercises household/owner/photo journeys, mocks only AI recognition, and deletes its test data afterward. It never writes test entries into the actual inventory database. [Certain]
