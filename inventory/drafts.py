@@ -10,7 +10,19 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from .models import Draft, Item
 from .validation import Invalid, entries
 
-Image.MAX_IMAGE_PIXELS = 25_000_000
+# Optional so the app still boots if the wheel is not installed yet; a deploy that copies code
+# before pip runs would otherwise crash on import. Phones shoot HEIC by default.
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+    ACCEPTED = ('JPEG', 'PNG', 'HEIF')
+except ImportError:
+    ACCEPTED = ('JPEG', 'PNG')
+
+# A 48MP iPhone frame is 48.8M pixels, so the old 25M cap rejected every full-resolution phone
+# photo regardless of format. 60M clears current phones; at 3 bytes/pixel that is ~180 MB per
+# decode, which the VM's memory tolerates across gunicorn's four threads.
+Image.MAX_IMAGE_PIXELS = 60_000_000
 
 
 def directory(draft):
@@ -43,8 +55,8 @@ def upload(owner, box, photos):
                 with warnings.catch_warnings():
                     warnings.simplefilter('error', Image.DecompressionBombWarning)
                     with Image.open(photo) as source:
-                        if source.format not in ('JPEG', 'PNG'):
-                            raise Invalid('Use JPEG or PNG; convert HEIC before uploading')
+                        if source.format not in ACCEPTED:
+                            raise Invalid(f'{source.format or "That file"} is not a supported image; upload JPEG or PNG')
                         source.load()
                         converted = ImageOps.exif_transpose(source).convert('RGB')
                         if min(converted.size) < 32:
@@ -56,8 +68,16 @@ def upload(owner, box, photos):
                         out = io.BytesIO()
                         clean.save(out, format='JPEG', quality=85)
                 payload = out.getvalue()
-            except (UnidentifiedImageError, OSError, Image.DecompressionBombError, Image.DecompressionBombWarning, ValueError):
-                raise Invalid('Invalid or oversized image; use JPEG or PNG')
+            # Invalid subclasses ValueError, so it must be re-raised before the sweep below or every
+            # specific reason above collapses into one message that misdiagnoses the upload.
+            except Invalid:
+                raise
+            except (Image.DecompressionBombError, Image.DecompressionBombWarning):
+                raise Invalid(f'Photo is larger than {Image.MAX_IMAGE_PIXELS // 1_000_000} megapixels; upload a smaller copy')
+            except UnidentifiedImageError:
+                raise Invalid('That file could not be read as an image' + ('' if 'HEIF' in ACCEPTED else '; export HEIC as JPEG first'))
+            except (OSError, ValueError):
+                raise Invalid('That image could not be processed; it may be incomplete or damaged')
             normalized += len(payload)
             if normalized > 8 * 1024 * 1024:
                 raise Invalid('Normalized images exceed 8 MB; use fewer photos')

@@ -73,38 +73,70 @@ function flagForm(item=null) {
   });
 }
 // Each pick adds to the batch instead of replacing it: iOS pickers often return one photo at a time.
+// Photos are shrunk to the server's own 1536px working size before upload, which turns a 6 MB HEIC
+// frame into ~500 KB of JPEG. That is what makes HEIC and 48MP phone photos work: the browser decodes
+// the original and we hand the server a plain JPEG, so neither format nor megapixels ever reach it.
+const MAX_EDGE=1536;
+async function toUploadableJpeg(file) {
+  let bitmap;
+  // imageOrientation bakes EXIF rotation into the pixels; canvas output carries no EXIF to rotate by.
+  try { bitmap = await createImageBitmap(file, {imageOrientation:'from-image'}); }
+  catch { return null; }
+  try {
+    const scale=Math.min(1, MAX_EDGE/Math.max(bitmap.width, bitmap.height));
+    const w=Math.max(1,Math.round(bitmap.width*scale)), h=Math.max(1,Math.round(bitmap.height*scale));
+    const canvas=document.createElement('canvas'); canvas.width=w; canvas.height=h;
+    canvas.getContext('2d').drawImage(bitmap,0,0,w,h);
+    const blob=await new Promise(done=>canvas.toBlob(done,'image/jpeg',0.85));
+    if(!blob) return null;
+    // A real File, not a Blob: staging keys on name and lastModified.
+    return new File([blob], file.name.replace(/\.[^.]+$/,'')+'.jpg', {type:'image/jpeg', lastModified:file.lastModified});
+  } finally { bitmap.close(); }
+}
 function uploadForm() {
   const MAX=4, MAX_EACH=10*1024*1024, MAX_TOTAL=25*1024*1024;
   const staged=[], urls=[];
   const identity=f=>`${f.name}:${f.size}:${f.lastModified}`;
-  const total=()=>staged.reduce((sum,f)=>sum+f.size,0);
-  modal('Add from photos', '<p>Lay the items out so each is visible. Include labels where you can.</p><div class="field"><label for="f-photos">Choose photos or take a photo</label><input id="f-photos" name="photos" type="file" accept="image/jpeg,image/png" multiple></div><div id="staged-photos" class="staged-grid"></div><p id="staged-note" class="hint"></p><p class="hint">Up to 4 JPEG or PNG photos, 10 MB each and 25 MB total. Add them together or a few at a time — each pick joins the batch below. For HEIC, export as JPEG first. Photos are sent for AI recognition and deleted locally after you save or discard the draft.</p>', 'Upload & review', async () => {
+  const total=()=>staged.reduce((sum,s)=>sum+s.file.size,0);
+  modal('Add from photos', '<p>Lay the items out so each is visible. Include labels where you can.</p><div class="field"><label for="f-photos">Choose photos or take a photo</label><input id="f-photos" name="photos" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple></div><div id="staged-photos" class="staged-grid"></div><p id="staged-note" class="hint"></p><p class="hint">Up to 4 photos. Straight from the camera is fine — HEIC and full-resolution shots are shrunk here before upload, so they arrive small and fast. Add them together or a few at a time; each pick joins the batch below. Photos are sent for AI recognition and deleted locally after you save or discard the draft.</p>', 'Upload & review', async () => {
     if(!staged.length) throw Error('Choose at least one photo first.');
     const data=new FormData();
-    staged.forEach(file=>data.append('photos',file));
+    staged.forEach(s=>data.append('photos',s.file));
     const saved=await api(`/api/boxes/${state.box.number}/drafts/`,data);
     location.assign(`/drafts/${saved.id}`);
   });
   const input=$('#f-photos'), grid=$('#staged-photos'), note=$('#staged-note'), error=$('#dialog-error');
   function render() {
     urls.splice(0).forEach(URL.revokeObjectURL);
-    grid.innerHTML=staged.map((file,n)=>{ const url=URL.createObjectURL(file); urls.push(url);
-      return `<div class="staged-photo"><img src="${url}" alt="${esc(file.name)}"><button type="button" class="remove-photo" data-drop="${n}" aria-label="Remove ${esc(file.name)}">×</button></div>`; }).join('');
+    grid.innerHTML=staged.map((s,n)=>{ const url=URL.createObjectURL(s.file); urls.push(url);
+      return `<div class="staged-photo"><img src="${url}" alt="${esc(s.label)}"><button type="button" class="remove-photo" data-drop="${n}" aria-label="Remove ${esc(s.label)}">×</button></div>`; }).join('');
     note.innerHTML=staged.length?`<span class="photo-count">${staged.length} of ${MAX} photos ready</span> · ${(total()/1048576).toFixed(1)} MB${staged.length<MAX?' · tap above to add more':''}`:'No photos chosen yet.';
     input.disabled=staged.length>=MAX;
     $('#dialog-submit').textContent=staged.length>1?`Upload ${staged.length} photos & review`:'Upload & review';
   }
-  input.addEventListener('change',()=>{
-    const problems=[];
-    for(const file of input.files) {
-      if(staged.length>=MAX){problems.push(`Only ${MAX} photos can go in one batch.`);break;}
-      if(staged.some(f=>identity(f)===identity(file)))continue;
-      if(file.size>MAX_EACH){problems.push(`${file.name} is over 10 MB.`);continue;}
-      if(total()+file.size>MAX_TOTAL){problems.push('Adding that would pass 25 MB in total.');break;}
-      staged.push(file);
-    }
-    // Clearing lets the same file be re-picked after removal, and keeps the control ready for the next pick.
+  input.addEventListener('change',async () => {
+    const picked=[...input.files];
+    // Clearing lets the same file be re-picked after removal, and keeps the control ready.
     input.value='';
+    const problems=[];
+    input.disabled=true; error.hidden=true;
+    note.textContent=`Preparing ${picked.length} photo${picked.length===1?'':'s'}…`;
+    for(const original of picked) {
+      if(staged.length>=MAX){problems.push(`Only ${MAX} photos can go in one batch.`);break;}
+      const key=identity(original);
+      if(staged.some(s=>s.key===key))continue;
+      const shrunk=await toUploadableJpeg(original);
+      if(!shrunk && !['image/jpeg','image/png'].includes(original.type)){
+        problems.push(`${original.name}: this browser cannot read that format — export it as JPEG.`);
+        continue;
+      }
+      // Fall back to the original when the browser cannot decode it but the server accepts the type.
+      const file=shrunk||original;
+      if(file.size>MAX_EACH){problems.push(`${original.name} is still over 10 MB.`);continue;}
+      if(total()+file.size>MAX_TOTAL){problems.push('Adding that would pass 25 MB in total.');break;}
+      staged.push({file, key, label:original.name});
+    }
+    input.disabled=false;
     render();
     error.textContent=problems.join(' ');
     error.hidden=!problems.length;
