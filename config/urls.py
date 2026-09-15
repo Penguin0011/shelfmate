@@ -1,7 +1,7 @@
 from django.urls import path
 from inventory import views as v
 urlpatterns = [
-    path('health/', v.health), path('api/session/', v.session),
+    path('', v.boxes), path('health/', v.health), path('api/session/', v.session),
     path('api/login/', v.sign_in), path('api/logout/', v.sign_out),
     path('api/boxes/', v.boxes), path('api/boxes/create/', v.box_create),
     path('box/<int:number>', v.box_detail),

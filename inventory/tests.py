@@ -72,7 +72,7 @@ class DraftTests(TestCase):
         self.client.force_login(self.owner)
     def make_draft(self):
         output = io.BytesIO()
-        Image.new('RGB', (30,30), 'red').save(output, format='JPEG')
+        Image.new('RGB', (64,64), 'red').save(output, format='JPEG')
         return drafts.upload(self.owner, self.box, [SimpleUploadedFile('photo.jpg', output.getvalue())])
     def test_save_once_and_cleanup(self):
         draft = self.make_draft()
@@ -162,3 +162,89 @@ class AITests(TestCase):
         draft.refresh_from_db()
         self.assertEqual(draft.state,'cancelled')
         self.assertEqual(draft.entries,[])
+
+import asyncio
+import httpx
+from .validation import entries as validate_entries
+
+class TransportTests(TestCase):
+    def run_response(self, status, payload):
+        real_client=httpx.AsyncClient
+        transport=httpx.MockTransport(lambda req:httpx.Response(status,json=payload))
+        with patch('inventory.ai.httpx.AsyncClient',side_effect=lambda **kwargs:real_client(transport=transport,**kwargs)):
+            return asyncio.run(ai.request('test','key','model','https://example.test',[]))
+    def test_transport_error_classification(self):
+        for status in [410,429,500,503]:
+            with self.assertRaises(ai.Retryable): self.run_response(status,{})
+        for status in [400,401,403]:
+            with self.assertRaises(ai.AIError) as error: self.run_response(status,{})
+            self.assertNotIsInstance(error.exception,ai.Retryable)
+        with self.assertRaises(ai.Retryable): self.run_response(200,{'choices':[]})
+        with self.assertRaises(ai.AIError): self.run_response(200,{'choices':[{'message':{'refusal':'no'}}]})
+        result,_=self.run_response(200,{'choices':[{'message':{'content':'```json\n[]\n```'}}]})
+        self.assertEqual(result,[])
+    def test_whole_call_deadline(self):
+        async def slow(*args,**kwargs):
+            await asyncio.sleep(1)
+        real_timeout=asyncio.timeout
+        with patch('inventory.ai.request',side_effect=slow), patch('inventory.ai.asyncio.timeout',side_effect=lambda seconds:real_timeout(.01)):
+            with self.assertRaises(ai.AIError): ai.complete([],validate_entries)
+
+class NormalizationTests(TestCase):
+    def test_ai_alias_lists_are_bounded(self):
+        self.assertEqual(ai.suggestions([{'name':'M3 screws','aliases':['M3 bolts','fasteners']}])[0]['aliases'],'M3 bolts, fasteners')
+        with self.assertRaises(ValueError): ai.suggestions([{'name':'M3','aliases':[{}]}])
+
+from django.test import TransactionTestCase
+from django.db import connection
+from django.core.management import call_command
+import sqlite3
+
+class BackupTests(TransactionTestCase):
+    def test_backup_restores_inventory_without_draft_payload(self):
+        owner=get_user_model().objects.create_user('backupowner',is_staff=True)
+        box=Box.objects.create(number=4,category='Parts')
+        draft=Draft.objects.create(owner=owner,box=box,entries=[{'name':'PRIVATE DRAFT PAYLOAD'}],files=['private.jpg'])
+        item=Item.objects.create(box=box,name='M3 assortment',draft=draft,draft_row=0)
+        with tempfile.TemporaryDirectory() as directory:
+            source=Path(directory)/'source.sqlite3'
+            target=Path(directory)/'backup.sqlite3'
+            with sqlite3.connect(source) as dest:
+                connection.connection.backup(dest)
+            from django.conf import settings
+            databases={**settings.DATABASES,'default':{**settings.DATABASES['default'],'NAME':source}}
+            with override_settings(DATABASES=databases):
+                call_command('backup_inventory',str(target),stdout=io.StringIO())
+            with sqlite3.connect(target) as restored:
+                self.assertEqual(restored.execute('SELECT name FROM inventory_item').fetchone()[0],'M3 assortment')
+                self.assertEqual(restored.execute('SELECT entries,files,state FROM inventory_draft').fetchone(),('[]','[]','expired'))
+                self.assertEqual(restored.execute('PRAGMA foreign_key_check').fetchall(),[])
+            self.assertNotIn(b'PRIVATE DRAFT PAYLOAD',target.read_bytes())
+            self.assertEqual(target.stat().st_mode & 0o777,0o600)
+
+@override_settings(SECURE_SSL_REDIRECT=False)
+class DraftJourneyTests(TestCase):
+    def test_upload_analyze_review_save_and_flag(self):
+        buckets.clear()
+        owner=get_user_model().objects.create_user('journey',is_staff=True)
+        box=Box.objects.create(number=12,category='Hardware')
+        self.client.force_login(owner)
+        with tempfile.TemporaryDirectory() as directory, override_settings(PHOTO_ROOT=Path(directory)):
+            stream=io.BytesIO();Image.new('RGB',(64,64),'white').save(stream,format='PNG')
+            response=self.client.post('/api/boxes/12/drafts/',{'photos':SimpleUploadedFile('photo.png',stream.getvalue())})
+            self.assertEqual(response.status_code,201)
+            pk=response.json()['id']
+            def post(path,data):
+                return self.client.post(path,json.dumps(data),content_type='application/json')
+            with patch('inventory.ai.complete',return_value=[{'name':'Screws','description':'','aliases':''}]):
+                self.assertEqual(post(f'/api/drafts/{pk}/analyze/',{'revision':0}).status_code,200)
+            review=post(f'/api/drafts/{pk}/',{'revision':1,'entries':[{'name':'M3 assortment','description':'16 mm screws','aliases':'fasteners'}]})
+            self.assertEqual(review.status_code,200)
+            with self.captureOnCommitCallbacks(execute=True):
+                save=post(f'/api/drafts/{pk}/save/',{'revision':2})
+            self.assertEqual(save.status_code,200)
+            self.assertFalse((Path(directory)/pk).exists())
+            self.client.logout()
+            result=self.client.get('/api/search/?q=16%20mm').json()['items'][0]
+            self.assertEqual(result['box'],12)
+            self.assertEqual(post('/api/boxes/12/flags/',{'item':result['id'],'reason':'taken'}).status_code,201)

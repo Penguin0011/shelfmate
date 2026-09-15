@@ -100,7 +100,7 @@ requirements.txt
 
 **Commit:** `feat: add AI photo suggestions with free-router fallback`
 
-- Configure NVIDIA as primary with `nvidia/nemotron-nano-12b-v2-vl`; use `openrouter/free` as the only backup. Load both API keys server-side.
+- Configure NVIDIA as primary with `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`; use `openrouter/free` as the only backup. Load both API keys server-side.
 - Verify the hosted NVIDIA request format from its current API reference and an actual small request. Do not treat self-hosted NIM documentation as proof of hosted limits.
 - Implement two explicit HTTP request builders and one shared failover function in `ai.py`. Send encoded image data, never a private LAN URL that the provider cannot fetch.
 - Start with a 60-second overall application deadline, at most 30 seconds per provider including response reads, a bounded response size, and one fallback attempt. Enforce the wall-clock deadline beyond individual HTTP read timeouts. Set Gunicorn/proxy timeouts above the application deadline.
@@ -151,3 +151,9 @@ Use `python manage.py test inventory` for the focused behavior suite and `python
 ## Completion boundary
 
 Planning is complete when this document is reviewed and committed. Application implementation remains separate. [Certain] VM, proxy, backup, provider-account, and phone verification require live details not yet supplied. [Certain] Begin coding with milestone 1 when requested; the earlier milestones do not depend on choosing the VM.
+
+## Implementation update — 2026-09-15
+
+The live NVIDIA API returned HTTP 410 for Nemotron Nano 12B v2 VL, reporting retirement on August 26, 2026. [Certain] Use `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`, which is listed by the authenticated models endpoint and supports image input in [NVIDIA’s current API example](https://build.nvidia.com/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning). [Certain] Initial replacement calls returned HTTP 503 capacity errors; a subsequent direct synthetic-image check returned a valid structured result. OpenRouter free-router and automatic-path synthetic-image checks also passed. [Certain] Real household recognition quality and iPhone behavior remain unverified. [Certain]
+
+The user requested backend completion while visual design is pending. [Certain] Implement JSON endpoints first; defer templates, styling, and browser autosave wiring until that design arrives. Preserve the approved workflows and permanent box URLs.

@@ -24,7 +24,10 @@ def sign_in(request):
     if limited(request, 'login', 10):
         return JsonResponse({'error': 'Try again later'}, status=429)
     data = body(request)
-    user = authenticate(request, username=string(data, 'username', 150, True), password=string(data, 'password', 1024, True))
+    password = data.get('password')
+    if not isinstance(password, str) or not 1 <= len(password) <= 1024:
+        raise Invalid('Invalid password')
+    user = authenticate(request, username=string(data, 'username', 150, True), password=password)
     if not user or not user.is_active or not user.is_staff:
         return JsonResponse({'error': 'Invalid owner credentials'}, status=403)
     login(request, user)

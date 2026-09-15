@@ -1,0 +1,10 @@
+[Unit]
+Description=Remove expired inventory photo drafts
+[Service]
+Type=oneshot
+User=inventory
+Group=inventory
+WorkingDirectory=/opt/inventory
+EnvironmentFile=/etc/inventory.env
+ExecStart=/opt/inventory/.venv/bin/python manage.py cleanup_drafts
+UMask=0077

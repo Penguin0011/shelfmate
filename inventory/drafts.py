@@ -47,7 +47,9 @@ def upload(owner, box, photos):
                             raise Invalid('Use JPEG or PNG; convert HEIC before uploading')
                         source.load()
                         converted = ImageOps.exif_transpose(source).convert('RGB')
-                        converted.thumbnail((1800, 1800))
+                        if min(converted.size) < 32:
+                            raise Invalid('Image must be at least 32 pixels on each side')
+                        converted.thumbnail((1536, 1536))
                         # A fresh image excludes EXIF, comments, and other source metadata.
                         clean = Image.new('RGB', converted.size)
                         clean.paste(converted)

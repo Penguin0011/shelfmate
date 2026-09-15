@@ -5,7 +5,7 @@ import time
 from threading import BoundedSemaphore
 import httpx
 from django.conf import settings
-from .validation import Invalid
+from .validation import Invalid, entries
 
 logger = logging.getLogger(__name__)
 slots = BoundedSemaphore(2)
@@ -25,7 +25,7 @@ async def request(provider, key, model, url, messages):
         async with asyncio.timeout(30):
             async with httpx.AsyncClient(timeout=25) as client:
                 async with client.stream('POST', url, json=payload, headers={'Authorization': f'Bearer {key}'}) as response:
-                    if response.status_code == 429 or response.status_code >= 500:
+                    if response.status_code in (410, 429) or response.status_code >= 500:
                         raise Retryable('AI service temporarily unavailable')
                     if response.status_code in (401, 403):
                         raise AIError(f'{provider} authentication or access failed')
@@ -59,7 +59,7 @@ async def request(provider, key, model, url, messages):
 
 async def _run(messages, validate):
     providers = [
-        ('NVIDIA', settings.NVIDIA_API_KEY, 'nvidia/nemotron-nano-12b-v2-vl', 'https://integrate.api.nvidia.com/v1/chat/completions'),
+        ('NVIDIA', settings.NVIDIA_API_KEY, settings.NVIDIA_MODEL, 'https://integrate.api.nvidia.com/v1/chat/completions'),
         ('OpenRouter', settings.OPENROUTER_API_KEY, 'openrouter/free', 'https://openrouter.ai/api/v1/chat/completions'),
     ]
     for name, key, model, url in providers:
@@ -90,3 +90,18 @@ def complete(messages, validate):
         return asyncio.run(bounded(messages, validate))
     finally:
         slots.release()
+
+
+def suggestions(value):
+    # Some routed models return aliases as a list despite the requested string.
+    if isinstance(value, list):
+        normalized = []
+        for row in value:
+            if isinstance(row, dict) and isinstance(row.get('aliases'), list):
+                aliases = row['aliases']
+                if len(aliases) > 20 or any(not isinstance(a, str) or len(a) > 200 for a in aliases):
+                    raise Invalid('Invalid aliases')
+                row = {**row, 'aliases': ', '.join(aliases)}
+            normalized.append(row)
+        value = normalized
+    return entries(value)

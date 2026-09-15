@@ -39,14 +39,16 @@ def analyze(request, pk):
         for filename in draft.files:
             encoded = base64.b64encode((drafts.directory(draft)/filename).read_bytes()).decode('ascii')
             content.append({'type':'image_url','image_url':{'url':f'data:image/jpeg;base64,{encoded}'}})
-        proposed = ai.complete([{'role':'user','content':content}], entries)
+        proposed = ai.complete([{'role':'user','content':content}], ai.suggestions)
         updated = Draft.objects.filter(pk=draft.pk, state='open', analysis_token=token, revision=draft.revision, expires_at__gt=timezone.now()).update(entries=proposed, revision=draft.revision+1, analysis_token=None, analyzing_until=None)
         if not updated:
             return JsonResponse({'error':'Draft changed while analyzing; result discarded'}, status=409)
         draft.refresh_from_db()
         return JsonResponse(draft_data(draft))
-    except (ai.AIError, OSError):
-        return JsonResponse({'error':'Recognition unavailable; your draft is preserved. Retry or enter items manually.'}, status=503)
+    except ai.AIError as exc:
+        return JsonResponse({'error': str(exc), 'draft_preserved': True}, status=503)
+    except OSError:
+        return JsonResponse({'error':'Photo unavailable; your draft is preserved.'}, status=503)
     finally:
         Draft.objects.filter(pk=draft.pk, analysis_token=token).update(analysis_token=None, analyzing_until=None)
 

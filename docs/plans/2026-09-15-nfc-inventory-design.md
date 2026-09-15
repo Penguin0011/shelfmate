@@ -65,7 +65,7 @@ Local deletion does not establish deletion from an AI provider’s systems. Prov
 
 Use one small server-side AI integration for photo suggestions and natural-language search. Keep provider endpoint, model, and key configurable; avoid an agent framework or a general provider-routing system.
 
-- **Primary:** NVIDIA hosted API, initially `nvidia/nemotron-nano-12b-v2-vl`.
+- **Primary:** NVIDIA hosted API, initially `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`.
 - **Backup:** OpenRouter Free Models Router, model ID `openrouter/free`, for both photo recognition and AI search. Do not add a paid fallback.
 - The free router selects from available free models and filters for required capabilities, including image understanding. Its selected model can vary between requests. [OpenRouter free router documentation](https://openrouter.ai/docs/cookbook/get-started/free-models-router-playground). [Certain] Send actual image inputs for photo requests and validate every response; record the returned model ID when available. Treat unavailable compatible models or exhausted free quotas as fallback failure and offer manual recovery.
 - Attempt OpenRouter once after a NVIDIA connection failure, timeout, rate limit, or server error, or an unusable structured response. Use a bounded total request deadline.
@@ -75,13 +75,13 @@ Use one small server-side AI integration for photo suggestions and natural-langu
 - Record minimal operational metadata such as provider, model, duration, and error category; do not log images, secrets, or full inventory payloads.
 - Explain in owner setup that automatic fallback may send photos or search questions and inventory descriptions to OpenRouter and its selected downstream provider.
 
-NVIDIA documents multi-image reasoning and visual Q&A for the selected primary model. [NVIDIA API reference](https://docs.api.nvidia.com/nim/reference/nvidia-nemotron-nano-12b-v2-vl). [Certain]
+NVIDIA documents image input for the replacement primary model. [NVIDIA API example](https://build.nvidia.com/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning). [Certain]
 
 OpenRouter documents image input through chat completions, including base64 uploads for private images; image limits vary by model/provider. [OpenRouter image inputs](https://openrouter.ai/docs/guides/overview/multimodal/image-understanding). [Certain]
 
 OpenRouter’s own model fallback feature operates within its API. [OpenRouter fallback documentation](https://openrouter.ai/docs/guides/routing/model-fallbacks). [Certain] Implement the NVIDIA-to-OpenRouter transition in this application; an OpenRouter model list alone is not that cross-service transition.
 
-Neither model quality nor account access, latency, pricing, or quotas has been tested for this application. [Certain]
+At design time, provider access and model quality were untested; see the implementation update below for subsequent live checks. [Certain]
 
 ## Search
 
@@ -123,3 +123,9 @@ Keep save idempotency state long enough to recognize a repeated batch submission
 Exclude native apps, offline synchronization, inner-container tracking, exact stock accounting, automated borrowing, external notifications, permanent photos, multi-household accounts, and a separate semantic-search service from version one.
 
 Resolve the VM/OS, application framework, reverse-proxy configuration, owner authentication implementation, NFC writing procedure, backup destination/schedule, provider retention settings, and request limits during implementation planning. Test the free router across multiple requests because the selected model may change. No deployment or runtime verification has occurred. [Certain]
+
+## Implementation update — 2026-09-15
+
+The live NVIDIA API returned HTTP 410 for Nemotron Nano 12B v2 VL, reporting retirement on August 26, 2026. [Certain] Use `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`, which is listed by the authenticated models endpoint and supports image input in [NVIDIA’s current API example](https://build.nvidia.com/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning). [Certain] Initial replacement calls returned HTTP 503 capacity errors; a subsequent direct synthetic-image check returned a valid structured result. OpenRouter free-router and automatic-path synthetic-image checks also passed. [Certain] Real household recognition quality and iPhone behavior remain unverified. [Certain]
+
+The user requested backend completion while visual design is pending. [Certain] Implement JSON endpoints first; defer templates, styling, and browser autosave wiring until that design arrives. Preserve the approved workflows and permanent box URLs.
