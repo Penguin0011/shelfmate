@@ -1,6 +1,6 @@
 # Box inventory backend
 
-Django/SQLite backend for personal inventory, household viewing/flags, temporary photo review, and NVIDIA AI with `openrouter/free` fallback. The responsive UI follows the supplied warm-paper mockup, with real owner sign-in, inventory search, flags, and photo review. No VM deployment has occurred. [Certain]
+Django/SQLite backend for personal inventory, household viewing/flags, temporary photo review, and NVIDIA AI with `openrouter/free` fallback. The responsive UI follows the supplied warm-paper mockup, with real owner sign-in, inventory search, flags, and photo review. The application is deployed on the Ubuntu VM at 10.0.0.21, behind https://box.clouddev.dad/. [Certain]
 
 ## Run locally
 
@@ -76,9 +76,9 @@ Provider processing is external even though the inventory is local. Local deleti
 
 ## Deployment and backups
 
-Use the systemd examples only after choosing the VM and inspecting the proxy/network configuration. Install under `/opt/inventory`, create an unprivileged `inventory` user, and place runtime data at `/var/lib/inventory`. Set `DATA_DIR=/var/lib/inventory`, DEBUG=0, production secrets, and ALLOWED_HOSTS=box.clouddev.dad in a mode-0600 `/etc/inventory.env`. The service account must be able to read the environment file used by cleanup commands; systemd loads the main service environment. Keep code read-only to the service account.
+Use the systemd examples only after choosing the VM and inspecting the proxy/network configuration. Install under `/opt/inventory`, create an unprivileged `inventory` user, and place runtime data at `/var/lib/inventory`. Set `DATA_DIR=/var/lib/inventory`, DEBUG=0, production secrets, and ALLOWED_HOSTS=box.clouddev.dad in a mode-0600 `/etc/inventory.env`. Systemd loads the root-readable environment file for both the application and cleanup service. Keep code read-only to the service account.
 
-The service example binds port 8000 on VM interfaces. Restrict ingress to the reverse proxy before starting it. Set TRUST_PROXY=1 only when that proxy strips/replaces forwarded protocol headers and direct untrusted ingress is blocked. Terminate valid HTTPS at the proxy; forward the original Host header. Set a 26 MB upload limit and a proxy response timeout above 75 seconds. Ensure intended household Wi-Fi can resolve and reach `box.clouddev.dad`; do not assume server-network access works from phones.
+The deployed service binds port 80 on VM interfaces using CAP_NET_BIND_SERVICE while running as the inventory account. Restrict ingress to the reverse proxy before starting it. Set TRUST_PROXY=1 only when that proxy strips/replaces forwarded protocol headers and direct untrusted ingress is blocked. Terminate valid HTTPS at the proxy; forward the original Host header. Set a 26 MB upload limit and a proxy response timeout above 75 seconds. Ensure intended household Wi-Fi can resolve and reach `box.clouddev.dad`; do not assume server-network access works from phones.
 
 Run migrations after stopping writes and making a backup. Run `collectstatic --noinput` and `check --deploy` using production settings. Install the cleanup timer. No backup timer is enabled until a destination/retention policy is chosen.
 
@@ -92,7 +92,7 @@ The destination must not exist. The command uses SQLite's backup API, removes dr
 
 - Native iPhone Safari camera/HEIC behavior and physical device testing.
 - Real household recognition quality and free-router consistency.
-- VM/reverse-proxy/DNS/TLS and physical NFC-tag verification.
+- Physical NFC-tag verification; VM/proxy/HTTPS access has been verified from the workstation.
 - Production backup destination, schedule, retention, and remote restoration.
 
 ## Verification snapshot — 2026-09-15
@@ -108,3 +108,15 @@ The interface uses the supplied HTML as a visual reference: warm paper backgroun
 All inventory and permissions come from the backend. New installations start empty. Owner dialogs support creating boxes, editing/moving/deleting items, photo uploads, and flag resolution. Photo review supports manual editing, removal, combining entries, revisioned autosave, and recoverable failures.
 
 Run `node scripts/check_ui.cjs` with Playwright available (set PLAYWRIGHT_MODULE to its module path if needed) and Google Chrome installed. The script creates a temporary database and local server, exercises household/owner/photo journeys, mocks only AI recognition, and deletes its test data afterward. It never writes test entries into the actual inventory database. [Certain]
+
+## Current deployment
+
+- VM: `box@10.0.0.21`, Ubuntu 22.04.5; isolated Python 3.12.14 under `/opt/inventory-python`. [Certain]
+- Proxy target: **HTTP `10.0.0.21:80`**; site: **https://box.clouddev.dad/**. [Certain]
+- Application: `/opt/inventory`; runtime data: `/var/lib/inventory`; root-readable production environment: `/etc/inventory.env`. [Certain]
+- `inventory.service` and `inventory-cleanup.timer` start on boot. Port 80 allows the proxy at `10.0.0.6`; SSH remains allowed. [Certain]
+- Initial owner username: `owner`. Generated credentials are in the ignored local `data/deploy/owner-login.json`, mode 0600. No credentials are committed. [Certain]
+
+To inspect the service, use `systemctl status inventory.service` and `journalctl -u inventory.service`. To run maintenance commands, use a root shell, export variables from `/etc/inventory.env`, change to `/opt/inventory`, and invoke `.venv/bin/python manage.py ...`. Do not print the environment.
+
+The 20-test suite passed on the VM. The real HTTPS page, assets, owner login/logout, and flag inbox were verified through the proxy using a mobile-width browser. [Certain] This does not replace physical iPhone/NFC testing or verify access from outside the local network.
