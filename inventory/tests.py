@@ -1,7 +1,7 @@
 import json
 from django.test import TestCase, Client, override_settings
 from django.contrib.auth import get_user_model
-from .models import Box, Item, Flag
+from .models import Box, Item, Flag, Location
 from .access import buckets
 
 @override_settings(SECURE_SSL_REDIRECT=False, SESSION_COOKIE_SECURE=False)
@@ -49,6 +49,27 @@ class CoreTests(TestCase):
         self.assertEqual(self.post('/api/boxes/create/', {'number':12,'category':'Duplicate'}).status_code, 409)
         self.client.logout()
         self.assertNotContains(self.client.get('/'), 'Archived boxes')
+    def test_location_history_validation_and_visibility(self):
+        self.client.force_login(self.owner)
+        response = self.post('/api/boxes/create/', {'number':21,'category':'Parts','location':' Office '})
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(self.post('/api/boxes/21/edit/', {'revision':0,'category':'Parts','location':'Garage'}).status_code, 200)
+        self.assertEqual(self.post('/api/boxes/create/', {'number':22,'category':'Tools','location':'office'}).status_code, 201)
+        self.assertEqual(Box.objects.get(number=22).location, 'Office')
+        self.assertEqual(list(Location.objects.values_list('name', flat=True)), ['Garage','Office'])
+        self.assertEqual(self.post('/api/boxes/21/edit/', {'revision':1,'category':'Parts','location':None}).status_code, 400)
+        self.assertEqual(self.post('/api/boxes/21/edit/', {'revision':1,'category':'Parts','location':'x'*121}).status_code, 400)
+        self.assertEqual(self.post('/api/boxes/21/edit/', {'revision':1,'category':'Parts'}).status_code, 200)
+        self.assertEqual(Box.objects.get(number=21).location, 'Garage')
+        self.assertEqual(self.post('/api/boxes/21/edit/', {'revision':2,'category':'Parts','location':''}).status_code, 200)
+        self.assertTrue(Location.objects.filter(name='Garage').exists())
+        self.assertIn('Garage', self.client.get('/').context['bootstrap']['locations'])
+        Item.objects.create(box=Box.objects.get(number=22), name='Spare screw')
+        self.client.logout()
+        self.assertContains(self.client.get('/box/22'), 'Office')
+        self.assertEqual(self.client.get('/api/search/?q=Spare').json()['items'][0]['location'], 'Office')
+        self.assertEqual(self.post('/api/boxes/22/edit/', {'revision':0,'category':'Tools','location':'Closet'}).status_code, 403)
+
     def test_csrf_login_and_logout(self):
         client = Client(enforce_csrf_checks=True)
         self.assertEqual(client.post('/api/login/', '{}', content_type='application/json').status_code, 403)

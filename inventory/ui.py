@@ -1,7 +1,7 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.db.models import Count
 from django.views.decorators.cache import never_cache
-from .models import Box, Draft, Flag
+from .models import Box, Draft, Flag, Location
 from .views import item_data
 from .draft_views import data as draft_data
 
@@ -21,8 +21,9 @@ def page(request, number=None, draft_id=None, screen='home'):
     flags = Flag.objects.select_related('box').order_by('-created_at') if owner else Flag.objects.none()
     items = list(box.items.select_related('box')) if box else []
     bootstrap = {'owner': bool(owner), 'screen': screen,
-                 'boxes': [{'number': b.number, 'category': b.category} for b in boxes],
-                 'box': {'number': box.number, 'category': box.category, 'revision': box.revision, 'retired': box.retired} if box else None,
+                 'locations': list(Location.objects.values_list('name', flat=True)) if owner else [],
+                 'boxes': [{'number': b.number, 'category': b.category, 'location': b.location} for b in boxes],
+                 'box': {'number': box.number, 'category': box.category, 'location': box.location, 'revision': box.revision, 'retired': box.retired} if box else None,
                  'items': [item_data(i) for i in items], 'draft': draft_data(draft) if draft else None}
     return render(request, 'inventory/page.html', {
         'screen': screen, 'owner': owner, 'boxes': boxes, 'box': box, 'items': items,

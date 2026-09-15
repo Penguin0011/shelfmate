@@ -6,12 +6,20 @@ from django.shortcuts import get_object_or_404
 from django.middleware.csrf import get_token
 from django.utils import timezone
 from .access import endpoint, body, limited
-from .models import Box, Item, Flag
+from .models import Box, Item, Flag, Location
 from .validation import Invalid, integer, string, entries
 
 
+def remember_location(data):
+    name = string(data, "location", 120)
+    if not name:
+        return ""
+    existing = Location.objects.filter(name__iexact=name).first()
+    return existing.name if existing else Location.objects.create(name=name).name
+
+
 def item_data(item):
-    return {'id': item.pk, 'name': item.name, 'description': item.description, 'aliases': item.aliases, 'revision': item.revision, 'box': item.box.number, 'category': item.box.category}
+    return {'id': item.pk, 'name': item.name, 'description': item.description, 'aliases': item.aliases, 'revision': item.revision, 'box': item.box.number, 'category': item.box.category, 'location': item.box.location}
 
 
 @endpoint(['GET'])
@@ -47,13 +55,13 @@ def health(request):
 
 @endpoint(['GET'])
 def boxes(request):
-    return JsonResponse({'boxes': list(Box.objects.filter(retired=False).values('number', 'category', 'revision'))})
+    return JsonResponse({'boxes': list(Box.objects.filter(retired=False).values('number', 'category', 'location', 'revision'))})
 
 
 @endpoint(['GET'])
 def box_detail(request, number):
     box = get_object_or_404(Box, number=number)
-    return JsonResponse({'number': box.number, 'category': box.category, 'retired': box.retired, 'revision': box.revision, 'items': [item_data(i) for i in box.items.select_related('box')]})
+    return JsonResponse({'number': box.number, 'category': box.category, 'location': box.location, 'retired': box.retired, 'revision': box.revision, 'items': [item_data(i) for i in box.items.select_related('box')]})
 
 
 @endpoint(['GET'])
@@ -80,11 +88,12 @@ def box_create(request):
             if not box.retired or box.items.exists():
                 return JsonResponse({'error': 'An active box already uses this number'}, status=409)
             box.category = category
+            box.location = remember_location(data) if "location" in data else box.location
             box.retired = False
             box.revision += 1
-            box.save(update_fields=['category', 'retired', 'revision'])
+            box.save(update_fields=['category', 'location', 'retired', 'revision'])
             return JsonResponse({'number': box.number, 'restored': True})
-        box = Box.objects.create(number=number, category=category)
+        box = Box.objects.create(number=number, category=category, location=remember_location(data))
     return JsonResponse({'number': box.number, 'restored': False}, status=201)
 
 
@@ -101,6 +110,8 @@ def box_edit(request, number):
         if retired and box.items.exists():
             raise Invalid('Move or remove contents before retirement')
         box.category = string(data, 'category', 120, True)
+        if 'location' in data:
+            box.location = remember_location(data)
         box.retired = retired
         box.revision += 1
         box.save()

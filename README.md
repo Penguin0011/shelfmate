@@ -52,6 +52,8 @@ Use strict JSON numbers for IDs/revisions and booleans for switches. Stale box/i
 
 Archived boxes appear in an owner-only list on the home page. Restore one there, or use its number when creating a box. Reuse preserves the existing record, NFC URL, and flag history; archiving requires empty contents. [Certain]
 
+Box create/edit accepts optional `location` (free text, up to 120 characters). Omitting it on edit preserves the location; an empty string clears it. Owner forms suggest saved room names, including locations no longer assigned to a box; case-insensitive matches reuse the original spelling. Locations appear in box lists, details, and search results. [Certain]
+
 ## Photos and AI
 
 Accept 1–4 JPEG/PNG photos, at most 10 MB each/25 MB total, bounded decoded pixels and 8 MB normalized output. Uploads are re-encoded as RGB JPEG with metadata removed. HEIC is currently rejected with conversion guidance; actual iPhone Safari capture remains to be verified. [Certain]

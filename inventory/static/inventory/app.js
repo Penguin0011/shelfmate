@@ -44,8 +44,8 @@ function loginForm() {
 }
 function boxForm(edit=false, restore=false) {
   const box=state.box;
-  modal(restore ? `Reuse Box ${box.number}` : edit ? 'Edit box' : 'Create or reuse a box', (edit ? `<p class="hint">Box ${box.number} keeps its number and NFC link.</p>` : '<p class="hint">An archived number can be reused. Its existing NFC tag will keep working.</p>'+field('number','Box number','','type="number" min="1" max="2147483647" required inputmode="numeric"')) + field('category','Category / name',edit?box.category:'','required maxlength="120" placeholder="e.g. Drone parts"') + (edit && !restore ? `<label class="check-label"><input type="checkbox" name="retired" ${box.retired?'checked':''}>Archive this box</label><p class="hint">Move or remove its contents before archiving it.</p>` : ''), restore ? 'Restore box' : 'Save box', async f => {
-    const data={category:f.get('category')};
+  modal(restore ? `Reuse Box ${box.number}` : edit ? 'Edit box' : 'Create or reuse a box', (edit ? `<p class="hint">Box ${box.number} keeps its number and NFC link.</p>` : '<p class="hint">An archived number can be reused. Its existing NFC tag will keep working.</p>'+field('number','Box number','','type="number" min="1" max="2147483647" required inputmode="numeric"')) + field('category','Category / name',edit?box.category:'','required maxlength="120" placeholder="e.g. Drone parts"') + field('location','Location (optional)',edit?box.location:'','maxlength="120" list="room-choices" placeholder="e.g. Office, garage, closet"') + `<datalist id="room-choices">${state.locations.map(name=>`<option value="${esc(name)}"></option>`).join('')}</datalist>` + (edit && !restore ? `<label class="check-label"><input type="checkbox" name="retired" ${box.retired?'checked':''}>Archive this box</label><p class="hint">Move or remove its contents before archiving it.</p>` : ''), restore ? 'Restore box' : 'Save box', async f => {
+    const data={category:f.get('category'),location:f.get('location')};
     if(edit) { data.revision=box.revision; data.retired=restore?false:f.has('retired'); }
     else data.number=Number(f.get('number'));
     const saved=await api(edit?`/api/boxes/${box.number}/edit/`:'/api/boxes/create/',data);
@@ -54,7 +54,7 @@ function boxForm(edit=false, restore=false) {
 }
 function itemForm(item=null) {
   const number=item?item.box:state.box.number;
-  const select=`<div class="field"><label for="f-box">Home box</label><select id="f-box" name="box">${state.boxes.map(b=>`<option value="${b.number}" ${b.number===number?'selected':''}>${esc(b.category)} · Box ${b.number}</option>`).join('')}</select></div>`;
+  const select=`<div class="field"><label for="f-box">Home box</label><select id="f-box" name="box">${state.boxes.map(b=>`<option value="${b.number}" ${b.number===number?'selected':''}>${esc(b.category)} · Box ${b.number}${b.location?` · ${esc(b.location)}`:''}</option>`).join('')}</select></div>`;
   modal(item?'Edit / move item':'Add an item', field('name','Item or assortment name',item?.name,'required maxlength="200"')+area('description','Description (optional)',item?.description)+field('aliases','Other names (optional)',item?.aliases,'maxlength="1000" placeholder="e.g. GPU, graphics card"')+select+(item?'<button type="button" class="text-button danger" id="delete-item">Delete this entry</button>':''), 'Save item', async f => {
     const data=Object.fromEntries(f); data.box=Number(data.box);
     if(item) data.revision=item.revision;
@@ -108,7 +108,7 @@ async function runSearch(ai=false) {
     const result=ai?await api('/api/search/ai/',{question:q}):await api(`/api/search/?q=${encodeURIComponent(q)}`,undefined,'GET');
     if(version!==searchVersion)return;
     const matches=result.matches||result.items;
-    $('#result-list').innerHTML=matches.length?matches.map(i=>`<a class="result-row" href="/box/${i.box}#item-${i.id}">${ai?'<span class="match-label">Possible match</span>':''}<h3>${esc(i.name)}</h3><span class="box-number">${esc(i.category)} · Box ${i.box}</span><p>${esc(ai?i.explanation:i.description)}</p></a>`).join(''):'<div class="empty"><h3>No matching entries.</h3><p>Try a different name, or ask the owner to check.</p></div>';
+    $('#result-list').innerHTML=matches.length?matches.map(i=>`<a class="result-row" href="/box/${i.box}#item-${i.id}">${ai?'<span class="match-label">Possible match</span>':''}<h3>${esc(i.name)}</h3><span class="box-number">${esc(i.category)} · Box ${i.box}${i.location?` · ${esc(i.location)}`:''}</span><p>${esc(ai?i.explanation:i.description)}</p></a>`).join(''):'<div class="empty"><h3>No matching entries.</h3><p>Try a different name, or ask the owner to check.</p></div>';
     history.replaceState(null,'',`/?q=${encodeURIComponent(q)}`);
   } catch(error){if(version===searchVersion){$('#result-list').innerHTML='';const p=document.createElement('p');p.className='pad';p.textContent=error.message;$('#result-list').append(p);}}
   finally{if(ai)$('#ask-ai').disabled=false;}
