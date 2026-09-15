@@ -196,6 +196,32 @@ class AITests(TestCase):
                 self.assertEqual(ai.complete([], entries)[0]['name'], 'Screws')
                 self.assertEqual(call.await_count, 1)
                 self.assertEqual(call.await_args.args[0], 'Gemini')
+    def test_verbose_descriptions_degrade_search_instead_of_breaking_it(self):
+        # Verbose descriptions are the point of the recognition prompt, but AI search sends the whole
+        # inventory as context. A flat refusal would disable search after roughly one box, so the
+        # payload is trimmed in stages and names/aliases -- what matching needs -- survive longest.
+        buckets.clear()
+        box = Box.objects.create(number=3, category='Parts')
+        for n in range(12):
+            Item.objects.create(box=box, name=f'Item {n}', description='D'*1800, aliases='A'*900)
+        captured = {}
+        def capture(messages, validate):
+            captured['payload'] = json.loads(messages[1]['content'])['inventory']
+            return []
+        with override_settings(AI_SEARCH_BUDGET=12500):
+            with patch('inventory.ai.complete', side_effect=capture):
+                response = self.client.post('/api/search/ai/', json.dumps({'question':'screws'}), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        rows = captured['payload']
+        self.assertEqual(len(rows), 12, 'every item must still be offered to the model')
+        self.assertTrue(all('aliases' in r and 'name' in r and 'id' in r for r in rows))
+        self.assertTrue(all('description' not in r for r in rows), 'descriptions drop before items do')
+        # A budget that fits trimmed descriptions keeps them, rather than dropping straight to names.
+        buckets.clear()
+        with override_settings(AI_SEARCH_BUDGET=18000):
+            with patch('inventory.ai.complete', side_effect=capture):
+                self.client.post('/api/search/ai/', json.dumps({'question':'screws'}), content_type='application/json')
+        self.assertTrue(all(len(r['description']) <= 300 for r in captured['payload']))
     def test_search_rejects_hallucination_and_reloads_location(self):
         buckets.clear()
         box=Box.objects.create(number=1,category='PC')

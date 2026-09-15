@@ -70,8 +70,15 @@ OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'dots-studio/dots-3-note-previe
 # proxy_read_timeout/proxy_send_timeout to 300 s for this host, so the budget below fits under it.
 # Keep the stack ordered: provider < provider+grace < total < analyzing lock < gunicorn < proxy.
 # Gemini answers in ~10-15 s, so this budget is headroom for failover, not the expected wait.
-# A real 2-photo batch of component boxes measured 6,960 completion tokens, so the old 4096 cap
-# truncated it and the whole 41 s response was discarded as 'AI response incomplete'.
-AI_MAX_TOKENS = int(os.getenv('AI_MAX_TOKENS', '12000'))
+# Truncation is not graceful: finish_reason 'length' discards the whole answer. Descriptions are
+# deliberately verbose (up to 1800 chars each), so 40 entries can reach ~23,000 tokens; 32,000
+# leaves room without sitting near flash-lite's 65,536 output ceiling. Verified that Gemini and
+# NVIDIA both accept this value.
+AI_MAX_TOKENS = int(os.getenv('AI_MAX_TOKENS', '32000'))
+# AI search sends the whole inventory as context. Verbose descriptions run ~2,400 chars per item,
+# so the old flat 40,000-char refusal would have disabled search after about 16 items -- roughly
+# one box. Budget for the SMALLEST context in the provider chain (NVIDIA's 256k), not Gemini's 1M,
+# and trim the payload in stages rather than refusing outright.
+AI_SEARCH_BUDGET = int(os.getenv('AI_SEARCH_BUDGET', '300000'))
 AI_PROVIDER_TIMEOUT = int(os.getenv('AI_PROVIDER_TIMEOUT', '60'))
 AI_TOTAL_TIMEOUT = int(os.getenv('AI_TOTAL_TIMEOUT', '150'))
