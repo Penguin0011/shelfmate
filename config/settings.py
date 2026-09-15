@@ -47,6 +47,13 @@ OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 AUTH_PASSWORD_VALIDATORS = [ {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'}, {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'} ]
 
 NVIDIA_MODEL = os.getenv('NVIDIA_MODEL', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning')
+# Pin the fallback model rather than using OpenRouter's 'openrouter/free' routing alias, which
+# resolves to a different model per call -- including nvidia/nemotron-3.5-content-safety, a
+# moderation classifier that answers 'User Safety: safe' and can never return inventory JSON.
+# Deliberately not the NVIDIA primary's model, so the fallback fails independently.
+# Verified 5/5 on four 1536px photos at 7.6-15.6 s; inclusionai/ling-3.0-flash-vl:free also
+# passed 5/5 (12.6-23.1 s). Free models get rate-limited and retired, so keep this swappable.
+OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'dots-studio/dots-3-note-preview:free')
 # Vision replies arrive in one piece after generation, so these budgets cover think-and-generate,
 # not just the network. Measured on four 1536px photos: 19-48 s end to end, including failover
 # when NVIDIA rate-limits. The old 25 s ceiling sat inside that spread, so analysis failed at random.

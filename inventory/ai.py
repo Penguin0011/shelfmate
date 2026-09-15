@@ -63,7 +63,7 @@ async def request(provider, key, model, url, messages):
 async def _run(messages, validate):
     providers = [
         ('NVIDIA', settings.NVIDIA_API_KEY, settings.NVIDIA_MODEL, 'https://integrate.api.nvidia.com/v1/chat/completions'),
-        ('OpenRouter', settings.OPENROUTER_API_KEY, 'openrouter/free', 'https://openrouter.ai/api/v1/chat/completions'),
+        ('OpenRouter', settings.OPENROUTER_API_KEY, settings.OPENROUTER_MODEL, 'https://openrouter.ai/api/v1/chat/completions'),
     ]
     for name, key, model, url in providers:
         started = time.monotonic()

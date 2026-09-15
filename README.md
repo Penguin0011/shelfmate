@@ -1,6 +1,6 @@
 # Box inventory backend
 
-Django/SQLite backend for personal inventory, household viewing/flags, temporary photo review, and NVIDIA AI with `openrouter/free` fallback. The responsive UI follows the supplied warm-paper mockup, with real owner sign-in, inventory search, flags, and photo review. The application is deployed on the Ubuntu VM at 10.0.0.21, behind https://box.clouddev.dad/. [Certain]
+Django/SQLite backend for personal inventory, household viewing/flags, temporary photo review, and NVIDIA AI with a pinned OpenRouter fallback. The responsive UI follows the supplied warm-paper mockup, with real owner sign-in, inventory search, flags, and photo review. The application is deployed on the Ubuntu VM at 10.0.0.21, behind https://box.clouddev.dad/. [Certain]
 
 ## Run locally
 
@@ -60,7 +60,7 @@ Accept 1–4 JPEG/PNG photos, at most 10 MB each/25 MB total, bounded decoded pi
 
 Photo save/cancel makes files inaccessible immediately. Files are removed after commit; failed deletion is retried. Draft expiry is 24 hours, with cleanup every 15 minutes when the supplied timer is installed. Never serve the draft directory from the reverse proxy. Backups exclude photo files and remove temporary draft payloads.
 
-NVIDIA uses `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning`; OpenRouter uses `openrouter/free`. Each provider has a 30-second wall-clock limit, with a 60-second overall bound and two concurrent AI operations per process. Recoverable errors trigger one fallback; refusals, access/configuration errors, and valid no-match results do not. Results always require validation and photo suggestions require owner review. Missing free capacity never escalates to a paid OpenRouter model.
+NVIDIA uses `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` (`NVIDIA_MODEL`); OpenRouter uses `dots-studio/dots-3-note-preview:free` (`OPENROUTER_MODEL`). Both are env-swappable, which matters because `:free` models get rate-limited and retired. The fallback is pinned rather than using OpenRouter's `openrouter/free` routing alias: that alias resolves to a different model on every call, including `nvidia/nemotron-3.5-content-safety`, a moderation classifier that replies `User Safety: safe` and can never return inventory JSON. Keep the fallback on a different model from the primary so it fails independently. Each provider has a 45-second wall-clock limit, with a 55-second overall bound and two concurrent AI operations per process. Recoverable errors trigger one fallback; refusals, access/configuration errors, and valid no-match results do not. Results always require validation and photo suggestions require owner review. Missing free capacity never escalates to a paid OpenRouter model.
 
 Provider processing is external even though the inventory is local. Local deletion does not prove provider deletion. Provider/account-specific retention has not been established for real household images. [Certain]
 

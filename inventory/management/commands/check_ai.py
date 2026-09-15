@@ -20,7 +20,7 @@ class Command(BaseCommand):
         if provider=='nvidia':
             args=('NVIDIA',settings.NVIDIA_API_KEY,settings.NVIDIA_MODEL,'https://integrate.api.nvidia.com/v1/chat/completions')
         else:
-            args=('OpenRouter',settings.OPENROUTER_API_KEY,'openrouter/free','https://openrouter.ai/api/v1/chat/completions')
+            args=('OpenRouter',settings.OPENROUTER_API_KEY,settings.OPENROUTER_MODEL,'https://openrouter.ai/api/v1/chat/completions')
         try:
             if provider == 'auto':
                 parsed=complete([{'role':'user','content':content}], suggestions)
