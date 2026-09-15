@@ -26,6 +26,7 @@ def page(request, number=None, draft_id=None, screen='home'):
                  'items': [item_data(i) for i in items], 'draft': draft_data(draft) if draft else None}
     return render(request, 'inventory/page.html', {
         'screen': screen, 'owner': owner, 'boxes': boxes, 'box': box, 'items': items,
+        'archived_boxes': Box.objects.filter(retired=True) if owner else [],
         'total': sum(b.count for b in boxes), 'open_count': flags.filter(status='open').count(),
         'open_flags': flags.filter(status='open') if screen == 'inbox' else [],
         'history': flags.exclude(status='open') if screen == 'inbox' else [],

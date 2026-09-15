@@ -42,14 +42,14 @@ if (previous) { notice(previous); sessionStorage.removeItem('inventory-notice');
 function loginForm() {
   modal('Owner sign in', '<p class="hint">Household viewing stays open. Sign in to manage your inventory.</p>'+field('username','Username','','required autocomplete="username" maxlength="150"')+field('password','Password','','type="password" required autocomplete="current-password" maxlength="1024"'), 'Sign in', async f => { await api('/api/login/',Object.fromEntries(f)); success('Signed in as owner.'); });
 }
-function boxForm(edit=false) {
+function boxForm(edit=false, restore=false) {
   const box=state.box;
-  modal(edit ? 'Edit box' : 'Create a box', (edit ? `<p class="hint">Box ${box.number} keeps its number and NFC link.</p>` : field('number','Box number','','type="number" min="1" max="2147483647" required inputmode="numeric"')) + field('category','Category / name',edit?box.category:'','required maxlength="120" placeholder="e.g. Drone parts"') + (edit ? `<label class="check-label"><input type="checkbox" name="retired" ${box.retired?'checked':''}>Retire this box</label><p class="hint">Move or remove its contents before retiring it.</p>` : ''), 'Save box', async f => {
+  modal(restore ? `Reuse Box ${box.number}` : edit ? 'Edit box' : 'Create or reuse a box', (edit ? `<p class="hint">Box ${box.number} keeps its number and NFC link.</p>` : '<p class="hint">An archived number can be reused. Its existing NFC tag will keep working.</p>'+field('number','Box number','','type="number" min="1" max="2147483647" required inputmode="numeric"')) + field('category','Category / name',edit?box.category:'','required maxlength="120" placeholder="e.g. Drone parts"') + (edit && !restore ? `<label class="check-label"><input type="checkbox" name="retired" ${box.retired?'checked':''}>Archive this box</label><p class="hint">Move or remove its contents before archiving it.</p>` : ''), restore ? 'Restore box' : 'Save box', async f => {
     const data={category:f.get('category')};
-    if(edit) { data.revision=box.revision; data.retired=f.has('retired'); }
+    if(edit) { data.revision=box.revision; data.retired=restore?false:f.has('retired'); }
     else data.number=Number(f.get('number'));
     const saved=await api(edit?`/api/boxes/${box.number}/edit/`:'/api/boxes/create/',data);
-    success('Box saved.',`/box/${edit?box.number:saved.number}`);
+    success(saved.restored||restore?'Box restored. Your NFC tag is ready to reuse.':'Box saved.',`/box/${edit?box.number:saved.number}`);
   });
 }
 function itemForm(item=null) {
@@ -87,6 +87,7 @@ document.addEventListener('click', async e => {
     if(action==='logout'){await api('/api/logout/',{});location.assign('/');}
     if(action==='new-box')boxForm();
     if(action==='edit-box')boxForm(true);
+    if(action==='restore-box')boxForm(true,true);
     if(action==='new-item')itemForm();
     if(action==='edit-item')itemForm(item);
     if(action==='flag')flagForm(item);

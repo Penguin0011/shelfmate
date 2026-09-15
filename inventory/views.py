@@ -1,5 +1,5 @@
 from django.contrib.auth import authenticate, login, logout
-from django.db import transaction, IntegrityError
+from django.db import transaction
 from django.db.models import Q, F
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
@@ -73,11 +73,19 @@ def box_create(request):
     number = integer(data, 'number')
     if not 0 < number <= 2147483647:
         raise Invalid('Number must be positive')
-    try:
-        box = Box.objects.create(number=number, category=string(data, 'category', 120, True))
-    except IntegrityError:
-        return JsonResponse({'error': 'Box number already used'}, status=409)
-    return JsonResponse({'number': box.number}, status=201)
+    category = string(data, 'category', 120, True)
+    with transaction.atomic():
+        box = Box.objects.filter(number=number).first()
+        if box:
+            if not box.retired or box.items.exists():
+                return JsonResponse({'error': 'An active box already uses this number'}, status=409)
+            box.category = category
+            box.retired = False
+            box.revision += 1
+            box.save(update_fields=['category', 'retired', 'revision'])
+            return JsonResponse({'number': box.number, 'restored': True})
+        box = Box.objects.create(number=number, category=category)
+    return JsonResponse({'number': box.number, 'restored': False}, status=201)
 
 
 @endpoint(['POST'], owner=True)

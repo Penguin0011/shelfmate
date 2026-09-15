@@ -22,7 +22,7 @@ All behavior below is a design requirement, not a claim of implemented or verifi
 ## Boxes, tags, and items
 
 - Give each outer box a permanent unique number written visibly on its NFC label.
-- Encode a permanent URL such as `https://box.clouddev.dad/box/12` into the tag. Renaming a category or moving hosting must preserve the box URL. Never silently reuse a retired box number.
+- Encode a permanent URL such as `https://box.clouddev.dad/box/12` into the tag. Renaming a category or moving hosting must preserve the box URL. The owner can explicitly reuse an archived number by restoring its existing record, preserving the NFC URL and history.
 - Keep contents flat. Do not model inner containers or compartments.
 - Display category before number: **Drone parts · Box 12**.
 - Let an item represent an individual component or a group/assortment using the same record structure.

@@ -32,7 +32,7 @@ All request/response bodies are JSON except multipart photo uploads. Fetch `GET 
 | GET `/api/boxes/12/` | Household | Flat contents and current box details as JSON |
 | GET `/api/search/?q=M3` | Household | Local name/description/alias search |
 | POST `/api/search/ai/` | Household | `question`; possible matches with current box locations |
-| POST `/api/boxes/create/` | Owner | Positive `number`, `category` |
+| POST `/api/boxes/create/` | Owner | Positive `number`, `category`; restores an archived number (200), creates a fresh number (201), rejects an active duplicate (409) |
 | POST `/api/boxes/12/edit/` | Owner | `revision`, `category`, optional boolean `retired`; number cannot change |
 | POST `/api/items/create/` | Owner | `box` number, `name`, optional `description`, `aliases` strings |
 | POST `/api/items/7/edit/` | Owner | Same fields plus `revision`, or `revision` and `delete:true` |
@@ -49,6 +49,8 @@ All request/response bodies are JSON except multipart photo uploads. Fetch `GET 
 | GET `/api/drafts/<uuid>/photos/0/` | Owner | Private no-store JPEG while draft remains open/unexpired |
 
 Use strict JSON numbers for IDs/revisions and booleans for switches. Stale box/item edits return 409; invalid draft revisions return 400 with an explanatory message. Expected error statuses: 400 invalid input, 403 owner/CSRF failure, 404 missing record, 409 conflict, 429 throttling, 502 invalid AI matches, 503 AI unavailable. Django 403/404 responses may be HTML: the client must handle non-JSON errors.
+
+Archived boxes appear in an owner-only list on the home page. Restore one there, or use its number when creating a box. Reuse preserves the existing record, NFC URL, and flag history; archiving requires empty contents. [Certain]
 
 ## Photos and AI
 

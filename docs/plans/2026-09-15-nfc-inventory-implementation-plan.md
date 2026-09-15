@@ -61,7 +61,7 @@ requirements.txt
 
 **Commit:** `feat: add numbered boxes and searchable inventory`
 
-- Model Box with a unique immutable positive number, category/name, timestamps, and retirement state. Retain retired numbers; make their old URLs show a retired state rather than a new box. Block retirement until contents are moved or removed.
+- Model Box with a unique immutable positive number, category/name, timestamps, and retirement state. Retain archived records and show their archived state at the existing URL; allow owner restoration or reuse through the create-box form without replacing history. Block retirement until contents are moved or removed.
 - Model Item with box FK, name, description, aliases stored as simple text, and timestamps. Represent a group with an ordinary item record, not a separate container hierarchy.
 - Add `/`, `/box/<number>`, owner create/edit box forms, and owner item create/edit/move/delete forms. Require a deliberate confirmation for deletion and detect stale edits with the submitted update timestamp.
 - Show category then box number. Put owner actions under the overflow menu; use native accessible controls and forms.
