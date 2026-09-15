@@ -17,6 +17,13 @@ class Retryable(AIError):
     pass
 
 
+class Refused(AIError):
+    # A content refusal, as opposed to a provider failing us. Kept distinct because it must NOT
+    # fall through to the next provider: the others would likely refuse the same input, and trying
+    # each in turn amounts to shopping for a compliant model.
+    pass
+
+
 async def request(provider, key, model, url, messages):
     if not key:
         raise AIError(f'{provider} API key is not configured')
@@ -43,7 +50,7 @@ async def request(provider, key, model, url, messages):
         choice = result['choices'][0]
         message = choice['message']
         if message.get('refusal') or choice.get('finish_reason') == 'content_filter':
-            raise AIError('AI declined this request')
+            raise Refused('AI declined this request')
         if choice.get('finish_reason') == 'length':
             raise Retryable('AI response incomplete')
         text = message['content']
@@ -80,9 +87,17 @@ async def _run(messages, validate):
             validated = validate(result)
             logger.info('AI provider=%s model=%s duration=%.2f status=ok', name, str(actual_model)[:150], time.monotonic()-started)
             return validated
+        except Refused:
+            raise
         except (Retryable, Invalid) as exc:
             # Record why, or the next outage costs a debugging session to reach this same line.
             logger.warning('AI provider=%s duration=%.2f status=retryable reason=%s: %s', name, time.monotonic()-started, type(exc).__name__, exc)
+        except AIError as exc:
+            # A provider rejecting us -- bad parameters, a stale key, a model retired out from under
+            # us -- says nothing about the providers behind it, so carry on down the chain instead
+            # of failing the whole request. gemini-2.5-flash returning 404 'no longer available to
+            # new users' is exactly this case.
+            logger.warning('AI provider=%s duration=%.2f status=rejected reason=%s: %s', name, time.monotonic()-started, type(exc).__name__, exc)
     raise AIError('AI unavailable; retry later or enter items manually')
 
 

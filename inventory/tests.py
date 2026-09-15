@@ -166,10 +166,10 @@ class AITests(TestCase):
             self.assertEqual(call.await_count, 2)
     def test_no_fallback_for_refusal_or_valid_empty(self):
         with patch('inventory.ai.request', new_callable=AsyncMock) as call:
-            call.side_effect = ai.AIError('refused')
+            call.side_effect = ai.Refused('refused')
             with self.assertRaises(ai.AIError):
                 ai.complete([], lambda x:x)
-            self.assertEqual(call.await_count, 1)
+            self.assertEqual(call.await_count, 1, 'a content refusal must not shop the next provider')
         with patch('inventory.ai.request', new_callable=AsyncMock, return_value=([], 'primary')) as call:
             self.assertEqual(ai.complete([], lambda x:x), [])
             self.assertEqual(call.await_count, 1)
@@ -222,6 +222,30 @@ class AITests(TestCase):
             with patch('inventory.ai.complete', side_effect=capture):
                 self.client.post('/api/search/ai/', json.dumps({'question':'screws'}), content_type='application/json')
         self.assertTrue(all(len(r['description']) <= 300 for r in captured['payload']))
+    def test_provider_rejection_falls_through_to_the_next_provider(self):
+        # 400 bad parameters, a stale key, or a model retired out from under us are all provider-level
+        # failures that say nothing about the providers behind them. Only a content refusal stops the
+        # chain. gemini-2.5-flash returning 404 "no longer available to new users" is the real case.
+        entries = __import__('inventory.validation', fromlist=['entries']).entries
+        with override_settings(GEMINI_API_KEY='g', OPENROUTER_API_KEY='o', NVIDIA_API_KEY='n'):
+            with patch('inventory.ai.request', new_callable=AsyncMock) as call:
+                call.side_effect = [ai.AIError('Gemini rejected the request'),
+                                    ai.AIError('OpenRouter authentication or access failed'),
+                                    ([{'name': 'Screws'}], 'nvidia-model')]
+                self.assertEqual(ai.complete([], entries)[0]['name'], 'Screws')
+                self.assertEqual(call.await_count, 3)
+            # Every provider rejecting still ends as a single AIError, not a leaked provider message.
+            with patch('inventory.ai.request', new_callable=AsyncMock) as call:
+                call.side_effect = ai.AIError('rejected')
+                with self.assertRaises(ai.AIError):
+                    ai.complete([], entries)
+                self.assertEqual(call.await_count, 3)
+            # A refusal from the first provider still stops immediately.
+            with patch('inventory.ai.request', new_callable=AsyncMock) as call:
+                call.side_effect = [ai.Refused('declined'), ([{'name': 'Screws'}], 'm')]
+                with self.assertRaises(ai.Refused):
+                    ai.complete([], entries)
+                self.assertEqual(call.await_count, 1)
     def test_search_rejects_hallucination_and_reloads_location(self):
         buckets.clear()
         box=Box.objects.create(number=1,category='PC')
@@ -263,7 +287,8 @@ class TransportTests(TestCase):
             with self.assertRaises(ai.AIError) as error: self.run_response(status,{})
             self.assertNotIsInstance(error.exception,ai.Retryable)
         with self.assertRaises(ai.Retryable): self.run_response(200,{'choices':[]})
-        with self.assertRaises(ai.AIError): self.run_response(200,{'choices':[{'message':{'refusal':'no'}}]})
+        with self.assertRaises(ai.Refused): self.run_response(200,{'choices':[{'message':{'refusal':'no'}}]})
+        with self.assertRaises(ai.Refused): self.run_response(200,{'choices':[{'message':{'content':'x'},'finish_reason':'content_filter'}]})
         result,_=self.run_response(200,{'choices':[{'message':{'content':'```json\n[]\n```'}}]})
         self.assertEqual(result,[])
     def test_whole_call_deadline(self):
