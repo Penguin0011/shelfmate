@@ -66,7 +66,8 @@ Local deletion does not establish deletion from an AI provider’s systems. Prov
 Use one small server-side AI integration for photo suggestions and natural-language search. Keep provider endpoint, model, and key configurable; avoid an agent framework or a general provider-routing system.
 
 - **Primary:** NVIDIA hosted API, initially `nvidia/nemotron-nano-12b-v2-vl`.
-- **Backup:** OpenRouter with one explicitly configured vision-capable model. Select its exact model ID during implementation after checking current availability, image support, cost, and representative examples. Do not silently use automatic selection or a free-model pool.
+- **Backup:** OpenRouter Free Models Router, model ID `openrouter/free`, for both photo recognition and AI search. Do not add a paid fallback.
+- The free router selects from available free models and filters for required capabilities, including image understanding. Its selected model can vary between requests. [OpenRouter free router documentation](https://openrouter.ai/docs/cookbook/get-started/free-models-router-playground). [Certain] Send actual image inputs for photo requests and validate every response; record the returned model ID when available. Treat unavailable compatible models or exhausted free quotas as fallback failure and offer manual recovery.
 - Attempt OpenRouter once after a NVIDIA connection failure, timeout, rate limit, or server error, or an unusable structured response. Use a bounded total request deadline.
 - Do not switch providers merely because identification is uncertain or a search returns no match. Do not bypass a safety refusal. Surface authentication/configuration errors to the owner for repair.
 - Validate both providers’ outputs with the same application schema. Do not assume either provider guarantees schema compliance.
@@ -121,4 +122,4 @@ Keep save idempotency state long enough to recognize a repeated batch submission
 
 Exclude native apps, offline synchronization, inner-container tracking, exact stock accounting, automated borrowing, external notifications, permanent photos, multi-household accounts, and a separate semantic-search service from version one.
 
-Resolve the VM/OS, application framework, reverse-proxy configuration, owner authentication implementation, NFC writing procedure, backup destination/schedule, OpenRouter model, provider retention settings, and request limits during implementation planning. No deployment or runtime verification has occurred. [Certain]
+Resolve the VM/OS, application framework, reverse-proxy configuration, owner authentication implementation, NFC writing procedure, backup destination/schedule, provider retention settings, and request limits during implementation planning. Test the free router across multiple requests because the selected model may change. No deployment or runtime verification has occurred. [Certain]
