@@ -84,7 +84,7 @@ Use the systemd examples only after choosing the VM and inspecting the proxy/net
 
 The deployed service binds port 80 on VM interfaces using CAP_NET_BIND_SERVICE while running as the inventory account. Restrict ingress to the reverse proxy before starting it. Set TRUST_PROXY=1 only when that proxy strips/replaces forwarded protocol headers and direct untrusted ingress is blocked. Terminate valid HTTPS at the proxy; forward the original Host header. Set a 26 MB upload limit and a proxy response timeout above 75 seconds. Ensure intended household Wi-Fi can resolve and reach `box.clouddev.dad`; do not assume server-network access works from phones.
 
-Run migrations after stopping writes and making a backup. Run `collectstatic --noinput` and `check --deploy` using production settings. Install the cleanup timer. No backup timer is enabled until a destination/retention policy is chosen.
+Run migrations after stopping writes and making a backup. Run `collectstatic --noinput` and `check --deploy` using production settings. `collectstatic` is required for any UI change: production serves `/static/` from `/opt/inventory/staticfiles` via WhiteNoise, so a pull and restart alone ships backend changes while leaving the old JS/CSS in place. Those asset URLs are unhashed and clients cache them, so hard-reload when verifying. Install the cleanup timer. No backup timer is enabled until a destination/retention policy is chosen.
 
 ```sh
 .venv/bin/python manage.py backup_inventory /secure/backups/inventory-YYYY-MM-DD.sqlite3
@@ -102,6 +102,8 @@ The destination must not exist. The command uses SQLite's backup API, removes dr
 ## Verification snapshot — 2026-09-15
 
 The backend behavior suite, real-file two-process save check, and SQLite backup/restore integrity check passed locally. Direct synthetic-image requests to NVIDIA Nemotron 3 Nano Omni and OpenRouter free router returned valid structured results; the automatic path also passed. [Certain] NVIDIA initially returned capacity errors, so this is proof of working integration, not guaranteed availability or household-item accuracy. [Certain]
+
+Photo analysis is bounded by `AI_PROVIDER_TIMEOUT` (45 s) and `AI_TOTAL_TIMEOUT` (55 s), overridable in `/etc/inventory.env`. Measured end-to-end analysis of four 1536px photos takes 19-48 s including failover when NVIDIA rate-limits, so the total must stay below the proxy response timeout: past it the client receives a gateway 504 whose body is not JSON and loses the preserved-draft message. Raise the proxy first, then these. The stack stays ordered: provider < provider+grace < total < analyzing lock < gunicorn `--timeout` < proxy.
 
 The originally planned NVIDIA model returned HTTP 410 retirement and was replaced with the configurable NVIDIA_MODEL default above. [Certain] Production Django checks report only optional HSTS subdomain/preload warnings; leave those domain-wide choices to verified deployment. [Certain]
 
