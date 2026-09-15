@@ -20,7 +20,7 @@ class Retryable(AIError):
 async def request(provider, key, model, url, messages):
     if not key:
         raise AIError(f'{provider} API key is not configured')
-    payload = {'model': model, 'messages': messages, 'max_tokens': 4096, 'temperature': 0.1}
+    payload = {'model': model, 'messages': messages, 'max_tokens': settings.AI_MAX_TOKENS, 'temperature': 0.1}
     budget = settings.AI_PROVIDER_TIMEOUT
     # Connecting should be quick; uploading photos and waiting for generation should not be rushed.
     limits = httpx.Timeout(connect=10, read=budget, write=budget, pool=10)

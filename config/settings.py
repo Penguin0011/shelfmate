@@ -61,5 +61,8 @@ OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'dots-studio/dots-3-note-previe
 # that the client gets a gateway 504 whose body is not JSON, losing the "your draft is kept" message.
 # So the total stays under 60 s. Raising these means raising proxy_read_timeout on the proxy first.
 # Keep the stack ordered: provider < provider+grace < total < analyzing lock < gunicorn < proxy.
+# A real 2-photo batch of component boxes measured 6,960 completion tokens, so the old 4096 cap
+# truncated it and the whole 41 s response was discarded as 'AI response incomplete'.
+AI_MAX_TOKENS = int(os.getenv('AI_MAX_TOKENS', '12000'))
 AI_PROVIDER_TIMEOUT = int(os.getenv('AI_PROVIDER_TIMEOUT', '45'))
 AI_TOTAL_TIMEOUT = int(os.getenv('AI_TOTAL_TIMEOUT', '55'))
