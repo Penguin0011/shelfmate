@@ -42,10 +42,17 @@ STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 DATA_UPLOAD_MAX_MEMORY_SIZE = 26 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 0
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 NVIDIA_API_KEY = os.getenv('NVIDIA_API_KEY', '')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 AUTH_PASSWORD_VALIDATORS = [ {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'}, {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'} ]
 
+# Gemini is tried first: on a real two-photo batch of component boxes it returned valid grouped
+# entries in 9.8 s using 694 completion tokens, against 130.5 s and 6,960 tokens for the NVIDIA
+# reasoning model on the same photos. It speaks the OpenAI chat-completions shape, so it needs no
+# client changes. NVIDIA is tried last because a 130 s attempt would otherwise consume the whole
+# budget and starve the remaining providers.
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-3.5-flash')
 NVIDIA_MODEL = os.getenv('NVIDIA_MODEL', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning')
 # Pin the fallback model rather than using OpenRouter's 'openrouter/free' routing alias, which
 # resolves to a different model per call -- including nvidia/nemotron-3.5-content-safety, a
@@ -57,12 +64,13 @@ OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'dots-studio/dots-3-note-previe
 # Vision replies arrive in one piece after generation, so these budgets cover think-and-generate,
 # not just the network. Measured on four 1536px photos: 19-48 s end to end, including failover
 # when NVIDIA rate-limits. The old 25 s ceiling sat inside that spread, so analysis failed at random.
-# The ceiling is the openresty proxy in front of us, whose proxy_read_timeout defaults to 60 s: past
-# that the client gets a gateway 504 whose body is not JSON, losing the "your draft is kept" message.
-# So the total stays under 60 s. Raising these means raising proxy_read_timeout on the proxy first.
+# The ceiling is the proxy in front of us: past its response timeout the client gets a gateway 504
+# whose body is not JSON, losing the "your draft is kept" message. NGINX Proxy Manager now sets
+# proxy_read_timeout/proxy_send_timeout to 300 s for this host, so the budget below fits under it.
 # Keep the stack ordered: provider < provider+grace < total < analyzing lock < gunicorn < proxy.
+# Gemini answers in ~10-15 s, so this budget is headroom for failover, not the expected wait.
 # A real 2-photo batch of component boxes measured 6,960 completion tokens, so the old 4096 cap
 # truncated it and the whole 41 s response was discarded as 'AI response incomplete'.
 AI_MAX_TOKENS = int(os.getenv('AI_MAX_TOKENS', '12000'))
-AI_PROVIDER_TIMEOUT = int(os.getenv('AI_PROVIDER_TIMEOUT', '45'))
-AI_TOTAL_TIMEOUT = int(os.getenv('AI_TOTAL_TIMEOUT', '55'))
+AI_PROVIDER_TIMEOUT = int(os.getenv('AI_PROVIDER_TIMEOUT', '60'))
+AI_TOTAL_TIMEOUT = int(os.getenv('AI_TOTAL_TIMEOUT', '150'))

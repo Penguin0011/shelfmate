@@ -173,6 +173,29 @@ class AITests(TestCase):
         with patch('inventory.ai.request', new_callable=AsyncMock, return_value=([], 'primary')) as call:
             self.assertEqual(ai.complete([], lambda x:x), [])
             self.assertEqual(call.await_count, 1)
+    def test_unconfigured_providers_are_skipped_not_fatal(self):
+        # A missing key raises AIError, which is deliberately not retryable. If that escaped the
+        # provider loop it would abort the whole chain, so an unset key must skip instead.
+        entries = __import__('inventory.validation', fromlist=['entries']).entries
+        with override_settings(GEMINI_API_KEY='', OPENROUTER_API_KEY='', NVIDIA_API_KEY='configured'):
+            with patch('inventory.ai.request', new_callable=AsyncMock) as call:
+                call.side_effect = [([{'name': 'Cable'}], 'nvidia-model')]
+                self.assertEqual(ai.complete([], entries)[0]['name'], 'Cable')
+                self.assertEqual(call.await_count, 1)
+                self.assertEqual(call.await_args.args[0], 'NVIDIA')
+        with override_settings(GEMINI_API_KEY='', OPENROUTER_API_KEY='', NVIDIA_API_KEY=''):
+            with patch('inventory.ai.request', new_callable=AsyncMock) as call:
+                with self.assertRaises(ai.AIError):
+                    ai.complete([], entries)
+                self.assertEqual(call.await_count, 0)
+    def test_gemini_is_tried_before_the_slower_providers(self):
+        entries = __import__('inventory.validation', fromlist=['entries']).entries
+        with override_settings(GEMINI_API_KEY='g', OPENROUTER_API_KEY='o', NVIDIA_API_KEY='n'):
+            with patch('inventory.ai.request', new_callable=AsyncMock) as call:
+                call.side_effect = [([{'name': 'Screws'}], 'gemini-model')]
+                self.assertEqual(ai.complete([], entries)[0]['name'], 'Screws')
+                self.assertEqual(call.await_count, 1)
+                self.assertEqual(call.await_args.args[0], 'Gemini')
     def test_search_rejects_hallucination_and_reloads_location(self):
         buckets.clear()
         box=Box.objects.create(number=1,category='PC')

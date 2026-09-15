@@ -61,11 +61,19 @@ async def request(provider, key, model, url, messages):
 
 
 async def _run(messages, validate):
+    # Fastest first, so a slow provider never starves the ones behind it.
     providers = [
-        ('NVIDIA', settings.NVIDIA_API_KEY, settings.NVIDIA_MODEL, 'https://integrate.api.nvidia.com/v1/chat/completions'),
+        ('Gemini', settings.GEMINI_API_KEY, settings.GEMINI_MODEL, 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'),
         ('OpenRouter', settings.OPENROUTER_API_KEY, settings.OPENROUTER_MODEL, 'https://openrouter.ai/api/v1/chat/completions'),
+        ('NVIDIA', settings.NVIDIA_API_KEY, settings.NVIDIA_MODEL, 'https://integrate.api.nvidia.com/v1/chat/completions'),
     ]
     for name, key, model, url in providers:
+        # Skip unconfigured providers here: request() raises AIError for a missing key, and AIError
+        # is deliberately not retryable, so letting it through would abort the whole chain instead
+        # of falling through to the providers that *are* configured.
+        if not key:
+            logger.info('AI provider=%s status=skipped reason=no key configured', name)
+            continue
         started = time.monotonic()
         try:
             result, actual_model = await request(name, key, model, url, messages)
