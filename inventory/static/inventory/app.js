@@ -72,11 +72,51 @@ function flagForm(item=null) {
     await api(`/api/boxes/${state.box.number}/flags/`,data);$('#dialog').close();notice('Flag sent to the owner. Thank you.');
   });
 }
+// Each pick adds to the batch instead of replacing it: iOS pickers often return one photo at a time.
 function uploadForm() {
-  modal('Add from photos', '<p>Lay the items out so each is visible. Include labels where you can.</p><div class="field"><label for="f-photos">Choose photos or take a photo</label><input id="f-photos" name="photos" type="file" accept="image/jpeg,image/png" multiple required></div><p class="hint">Up to 4 JPEG or PNG photos, 10 MB each. For HEIC, export as JPEG first. Photos are sent for AI recognition and deleted locally after save or cancel.</p>', 'Upload & review', async f => {
-    const photos=f.getAll('photos'); if(photos.length>4 || photos.some(p=>p.size>10*1024*1024) || photos.reduce((s,p)=>s+p.size,0)>25*1024*1024) throw Error('Choose up to 4 photos, 10 MB each and 25 MB total.');
-    const saved=await api(`/api/boxes/${state.box.number}/drafts/`,f);location.assign(`/drafts/${saved.id}`);
+  const MAX=4, MAX_EACH=10*1024*1024, MAX_TOTAL=25*1024*1024;
+  const staged=[], urls=[];
+  const identity=f=>`${f.name}:${f.size}:${f.lastModified}`;
+  const total=()=>staged.reduce((sum,f)=>sum+f.size,0);
+  modal('Add from photos', '<p>Lay the items out so each is visible. Include labels where you can.</p><div class="field"><label for="f-photos">Choose photos or take a photo</label><input id="f-photos" name="photos" type="file" accept="image/jpeg,image/png" multiple></div><div id="staged-photos" class="staged-grid"></div><p id="staged-note" class="hint"></p><p class="hint">Up to 4 JPEG or PNG photos, 10 MB each and 25 MB total. Add them together or a few at a time — each pick joins the batch below. For HEIC, export as JPEG first. Photos are sent for AI recognition and deleted locally after you save or discard the draft.</p>', 'Upload & review', async () => {
+    if(!staged.length) throw Error('Choose at least one photo first.');
+    const data=new FormData();
+    staged.forEach(file=>data.append('photos',file));
+    const saved=await api(`/api/boxes/${state.box.number}/drafts/`,data);
+    location.assign(`/drafts/${saved.id}`);
   });
+  const input=$('#f-photos'), grid=$('#staged-photos'), note=$('#staged-note'), error=$('#dialog-error');
+  function render() {
+    urls.splice(0).forEach(URL.revokeObjectURL);
+    grid.innerHTML=staged.map((file,n)=>{ const url=URL.createObjectURL(file); urls.push(url);
+      return `<div class="staged-photo"><img src="${url}" alt="${esc(file.name)}"><button type="button" class="remove-photo" data-drop="${n}" aria-label="Remove ${esc(file.name)}">×</button></div>`; }).join('');
+    note.innerHTML=staged.length?`<span class="photo-count">${staged.length} of ${MAX} photos ready</span> · ${(total()/1048576).toFixed(1)} MB${staged.length<MAX?' · tap above to add more':''}`:'No photos chosen yet.';
+    input.disabled=staged.length>=MAX;
+    $('#dialog-submit').textContent=staged.length>1?`Upload ${staged.length} photos & review`:'Upload & review';
+  }
+  input.addEventListener('change',()=>{
+    const problems=[];
+    for(const file of input.files) {
+      if(staged.length>=MAX){problems.push(`Only ${MAX} photos can go in one batch.`);break;}
+      if(staged.some(f=>identity(f)===identity(file)))continue;
+      if(file.size>MAX_EACH){problems.push(`${file.name} is over 10 MB.`);continue;}
+      if(total()+file.size>MAX_TOTAL){problems.push('Adding that would pass 25 MB in total.');break;}
+      staged.push(file);
+    }
+    // Clearing lets the same file be re-picked after removal, and keeps the control ready for the next pick.
+    input.value='';
+    render();
+    error.textContent=problems.join(' ');
+    error.hidden=!problems.length;
+  });
+  grid.addEventListener('click',e=>{
+    const button=e.target.closest('[data-drop]'); if(!button)return;
+    staged.splice(Number(button.dataset.drop),1);
+    error.hidden=true;
+    render();
+  });
+  $('#dialog').addEventListener('close',()=>urls.splice(0).forEach(URL.revokeObjectURL),{once:true});
+  render();
 }
 document.addEventListener('click', async e => {
   const button=e.target.closest('[data-action]');if(!button)return;
@@ -129,7 +169,7 @@ if(state.draft) {
   function values(){return rows.map(({selected,...r})=>r);}
   function draw(){
     if(draft.state!=='open'||new Date(draft.expires_at)<=new Date()){editor.innerHTML=`<div class="empty"><h3>This draft is ${esc(draft.state==='open'?'expired':draft.state)}.</h3><p>Return to the box to see its saved contents.</p><a class="button" href="/box/${draft.box}">Open box</a></div>`;return;}
-    editor.innerHTML=`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div><button id="analyze" class="green wide">${rows.length?'Recognize again':'Recognize items from photos'}</button><p class="hint">You can also enter items manually. Review every suggestion before saving.</p><div id="draft-rows">${rows.map((r,n)=>`<section class="draft-row" data-row="${n}"><div class="draft-row-top"><label class="check-label"><input type="checkbox" data-select="${n}" ${r.selected?'checked':''}>Select to combine</label><button type="button" class="text-button danger" data-remove="${n}">Remove</button></div><div class="field"><label for="name-${n}">Item or assortment name</label><input id="name-${n}" data-key="name" maxlength="200" value="${esc(r.name)}" required></div><div class="field"><label for="description-${n}">Description</label><textarea id="description-${n}" data-key="description" maxlength="2000">${esc(r.description)}</textarea></div><div class="field"><label for="aliases-${n}">Other names</label><input id="aliases-${n}" data-key="aliases" maxlength="1000" value="${esc(r.aliases)}"></div>${draft.duplicates.includes(n)?'<p class="duplicate">A matching name is already in this box. Review before adding.</p>':''}</section>`).join('')}</div><div class="actions wrap"><button id="add-row">+ Add an entry</button><button id="combine">Combine selected</button></div><div class="save-bar"><p id="save-status" class="save-status" role="status">${dirty?'Unsaved changes':'Draft saved'}</p><div class="actions"><button id="save-draft" class="primary">Save to Box ${draft.box}</button><button id="cancel-draft">Discard</button></div><p class="hint">Saved entries stay in your inventory. Uploaded photos are deleted locally.</p></div>`;
+    editor.innerHTML=`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div><button id="analyze" class="green wide">${rows.length?'Recognize again':'Recognize items from photos'}</button><p id="analyze-progress" class="analyzing" hidden aria-live="polite"></p><p class="hint">You can also enter items manually. Review every suggestion before saving.</p><div id="draft-rows">${rows.map((r,n)=>`<section class="draft-row" data-row="${n}"><div class="draft-row-top"><label class="check-label"><input type="checkbox" data-select="${n}" ${r.selected?'checked':''}>Select to combine</label><button type="button" class="text-button danger" data-remove="${n}">Remove</button></div><div class="field"><label for="name-${n}">Item or assortment name</label><input id="name-${n}" data-key="name" maxlength="200" value="${esc(r.name)}" required></div><div class="field"><label for="description-${n}">Description</label><textarea id="description-${n}" data-key="description" maxlength="2000">${esc(r.description)}</textarea></div><div class="field"><label for="aliases-${n}">Other names</label><input id="aliases-${n}" data-key="aliases" maxlength="1000" value="${esc(r.aliases)}"></div>${draft.duplicates.includes(n)?'<p class="duplicate">A matching name is already in this box. Review before adding.</p>':''}</section>`).join('')}</div><div class="actions wrap"><button id="add-row">+ Add an entry</button><button id="combine">Combine selected</button></div><div class="save-bar"><p id="save-status" class="save-status" role="status">${dirty?'Unsaved changes':'Draft saved'}</p><div class="actions"><button id="save-draft" class="primary">Save to Box ${draft.box}</button><button id="cancel-draft">Discard</button></div><p class="hint">Saved entries stay in your inventory. Uploaded photos are deleted locally.</p></div>`;
     $('#analyze').onclick=analyze;$('#add-row').onclick=()=>{rows.push({name:'',description:'',aliases:'',selected:false});dirty=true;epoch++;draw();$(`#name-${rows.length-1}`).focus();};
     $('#combine').onclick=()=>{const selected=rows.filter(r=>r.selected);if(selected.length<2){status('Select at least two entries to combine.',true);return;}const first=rows.findIndex(r=>r.selected);const combined={name:selected.map(r=>r.name).join(' + ').slice(0,200),description:selected.map(r=>r.description).filter(Boolean).join('\n').slice(0,2000),aliases:selected.map(r=>r.aliases).filter(Boolean).join(', ').slice(0,1000),selected:false};rows=rows.filter((r,n)=>!r.selected||n===first).map(r=>r.selected?combined:r);changed();draw();};
     $('#save-draft').onclick=saveFinal;$('#cancel-draft').onclick=cancel;
@@ -147,7 +187,40 @@ if(state.draft) {
     queue=queue.catch(()=>{}).then(operation);return queue;
   }
   function disable(on){busy=on;editor.querySelectorAll('button,input,textarea').forEach(e=>e.disabled=on);}
-  async function analyze(){if(busy)return;if(rows.length&&!confirm('Replace these entries with new photo suggestions?'))return;disable(true);try{if(dirty)await persist();status('Recognizing items… this may take up to a minute.');draft=await api(`/api/drafts/${draft.id}/analyze/`,{revision:draft.revision,replace:rows.length>0});rows=draft.entries.map(r=>({...r,selected:false}));dirty=false;draw();}catch(e){status(e.message,true);}finally{disable(false);}}
+  // The model returns nothing until it has finished reading every photo, so show the wait next to
+  // the button that started it. Silence for 30-60 seconds is what reads as a broken server.
+  let ticker;
+  function stage(seconds,count){
+    if(seconds<15)return `Uploading ${count} photo${count===1?'':'s'} to the AI model…`;
+    if(seconds<40)return 'Reading the photos and naming what it sees…';
+    if(seconds<90)return 'Still working. Detailed photos take longer — your draft is safe.';
+    return 'Nearly at the time limit. If this fails, your photos and draft are kept.';
+  }
+  async function analyze(){
+    if(busy)return;
+    if(rows.length&&!confirm('Replace these entries with new photo suggestions?'))return;
+    disable(true);
+    const button=$('#analyze'), panel=$('#analyze-progress'), label=button.textContent;
+    const count=draft.photos.length, started=Date.now();
+    panel.hidden=false; panel.className='analyzing';
+    const tick=()=>{const seconds=Math.round((Date.now()-started)/1000);button.textContent=`Recognizing… ${seconds}s`;panel.textContent=stage(seconds,count);};
+    tick(); ticker=setInterval(tick,1000);
+    panel.scrollIntoView({block:'center',behavior:'smooth'});
+    try{
+      if(dirty)await persist();
+      draft=await api(`/api/drafts/${draft.id}/analyze/`,{revision:draft.revision,replace:rows.length>0});
+      rows=draft.entries.map(r=>({...r,selected:false}));
+      dirty=false;
+      clearInterval(ticker);
+      draw();
+      status(rows.length?`${rows.length} suggestion${rows.length===1?'':'s'} ready. Review each one before saving.`:'The AI found nothing to add. Try another photo, or add entries manually.');
+    }catch(e){
+      clearInterval(ticker);
+      button.textContent=label;
+      panel.className='analyzing error'; panel.textContent=e.message; panel.hidden=false;
+      status(e.message,true);
+    }finally{clearInterval(ticker);disable(false);}
+  }
   async function saveFinal(){if(busy)return;if(!rows.length){status('Add at least one entry.',true);return;}disable(true);try{await persist();await api(`/api/drafts/${draft.id}/save/`,{revision:draft.revision});dirty=false;success('Items added to the box.',`/box/${draft.box}`);}catch(e){status(e.message,true);}finally{disable(false);}}
   async function cancel(){if(busy||!confirm('Discard this draft and delete its uploaded photos?'))return;clearTimeout(timer);disable(true);try{await queue.catch(()=>{});await api(`/api/drafts/${draft.id}/cancel/`,{});dirty=false;success('Draft discarded.',`/box/${draft.box}`);}catch(e){status(e.message,true);}finally{disable(false);}}
   editor.addEventListener('input',e=>{const key=e.target.dataset.key;if(!key)return;const n=Number(e.target.closest('[data-row]').dataset.row);rows[n][key]=e.target.value;changed();});

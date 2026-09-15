@@ -21,9 +21,12 @@ async def request(provider, key, model, url, messages):
     if not key:
         raise AIError(f'{provider} API key is not configured')
     payload = {'model': model, 'messages': messages, 'max_tokens': 4096, 'temperature': 0.1}
+    budget = settings.AI_PROVIDER_TIMEOUT
+    # Connecting should be quick; uploading photos and waiting for generation should not be rushed.
+    limits = httpx.Timeout(connect=10, read=budget, write=budget, pool=10)
     try:
-        async with asyncio.timeout(30):
-            async with httpx.AsyncClient(timeout=25) as client:
+        async with asyncio.timeout(budget + 15):
+            async with httpx.AsyncClient(timeout=limits) as client:
                 async with client.stream('POST', url, json=payload, headers={'Authorization': f'Bearer {key}'}) as response:
                     if response.status_code in (410, 429) or response.status_code >= 500:
                         raise Retryable('AI service temporarily unavailable')
@@ -69,14 +72,15 @@ async def _run(messages, validate):
             validated = validate(result)
             logger.info('AI provider=%s model=%s duration=%.2f status=ok', name, str(actual_model)[:150], time.monotonic()-started)
             return validated
-        except (Retryable, Invalid):
-            logger.warning('AI provider=%s duration=%.2f status=retryable', name, time.monotonic()-started)
+        except (Retryable, Invalid) as exc:
+            # Record why, or the next outage costs a debugging session to reach this same line.
+            logger.warning('AI provider=%s duration=%.2f status=retryable reason=%s: %s', name, time.monotonic()-started, type(exc).__name__, exc)
     raise AIError('AI unavailable; retry later or enter items manually')
 
 
 async def bounded(messages, validate):
     try:
-        async with asyncio.timeout(60):
+        async with asyncio.timeout(settings.AI_TOTAL_TIMEOUT):
             return await _run(messages, validate)
     except TimeoutError as exc:
         raise AIError('AI deadline exceeded; retry later') from exc
