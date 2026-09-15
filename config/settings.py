@@ -47,12 +47,13 @@ NVIDIA_API_KEY = os.getenv('NVIDIA_API_KEY', '')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 AUTH_PASSWORD_VALIDATORS = [ {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'}, {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'} ]
 
-# Gemini is tried first: on a real two-photo batch of component boxes it returned valid grouped
-# entries in 9.8 s using 694 completion tokens, against 130.5 s and 6,960 tokens for the NVIDIA
-# reasoning model on the same photos. It speaks the OpenAI chat-completions shape, so it needs no
-# client changes. NVIDIA is tried last because a 130 s attempt would otherwise consume the whole
-# budget and starve the remaining providers.
-GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-3.5-flash')
+# Gemini is tried first: on a real two-photo batch of component boxes flash-lite returned valid
+# grouped entries in 5.6 s using 700 completion tokens, against 130.5 s and 6,960 tokens for the
+# NVIDIA reasoning model on the same photos (gemini-3.5-flash took 9.8 s at equal quality). It
+# speaks the OpenAI chat-completions shape, so it needs no client changes. NVIDIA is tried last
+# because a 130 s attempt would otherwise consume the whole budget and starve the providers behind
+# it. Gemini has its own capacity blips -- transient 503s -- which is why the chain remains.
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-3.1-flash-lite')
 NVIDIA_MODEL = os.getenv('NVIDIA_MODEL', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning')
 # Pin the fallback model rather than using OpenRouter's 'openrouter/free' routing alias, which
 # resolves to a different model per call -- including nvidia/nemotron-3.5-content-safety, a
