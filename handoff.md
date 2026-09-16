@@ -64,6 +64,11 @@ cp /opt/inventory/deploy/inventory.service /etc/systemd/system/ && systemctl dae
 systemctl restart inventory
 ```
 
+The backup destination must not exist. The command uses SQLite's backup API, removes temporary
+draft payloads and sessions, preserves saved receipts, vacuums, and checks integrity. Restore into
+a separate `DATA_DIR` and verify migrations, login, box URLs, items, and flags; never overwrite the
+running source database for a restore test.
+
 ### Two traps
 
 **`collectstatic` is mandatory for any UI change.** Production serves `/static/` from
@@ -203,6 +208,7 @@ takes the write lock at `BEGIN` and serialises concurrent batches instead.
 cp .env.example .env     # fill in SECRET_KEY and at least one AI key
 .venv/bin/python manage.py migrate
 .venv/bin/python manage.py test          # 32 tests
+node scripts/check_ui.cjs                # requires Playwright and Chrome
 .venv/bin/python manage.py runserver
 ```
 

@@ -47,38 +47,12 @@ NVIDIA_API_KEY = os.getenv('NVIDIA_API_KEY', '')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 AUTH_PASSWORD_VALIDATORS = [ {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'}, {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'} ]
 
-# Gemini is tried first: on a real two-photo batch of component boxes flash-lite returned valid
-# grouped entries in 5.6 s using 700 completion tokens, against 130.5 s and 6,960 tokens for the
-# NVIDIA reasoning model on the same photos (gemini-3.5-flash took 9.8 s at equal quality). It
-# speaks the OpenAI chat-completions shape, so it needs no client changes. NVIDIA is tried last
-# because a 130 s attempt would otherwise consume the whole budget and starve the providers behind
-# it. Gemini has its own capacity blips -- transient 503s -- which is why the chain remains.
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-3.1-flash-lite')
 NVIDIA_MODEL = os.getenv('NVIDIA_MODEL', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning')
-# Pin the fallback model rather than using OpenRouter's 'openrouter/free' routing alias, which
-# resolves to a different model per call -- including nvidia/nemotron-3.5-content-safety, a
-# moderation classifier that answers 'User Safety: safe' and can never return inventory JSON.
-# Deliberately not the NVIDIA primary's model, so the fallback fails independently.
-# Verified 5/5 on four 1536px photos at 7.6-15.6 s; inclusionai/ling-3.0-flash-vl:free also
-# passed 5/5 (12.6-23.1 s). Free models get rate-limited and retired, so keep this swappable.
+# Pin a vision model; the generic free router may select a non-generative classifier.
 OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'dots-studio/dots-3-note-preview:free')
-# Vision replies arrive in one piece after generation, so these budgets cover think-and-generate,
-# not just the network. Measured on four 1536px photos: 19-48 s end to end, including failover
-# when NVIDIA rate-limits. The old 25 s ceiling sat inside that spread, so analysis failed at random.
-# The ceiling is the proxy in front of us: past its response timeout the client gets a gateway 504
-# whose body is not JSON, losing the "your draft is kept" message. NGINX Proxy Manager now sets
-# proxy_read_timeout/proxy_send_timeout to 300 s for this host, so the budget below fits under it.
-# Keep the stack ordered: provider < provider+grace < total < analyzing lock < gunicorn < proxy.
-# Gemini answers in ~10-15 s, so this budget is headroom for failover, not the expected wait.
-# Truncation is not graceful: finish_reason 'length' discards the whole answer. Descriptions are
-# deliberately verbose (up to 1800 chars each), so 40 entries can reach ~23,000 tokens; 32,000
-# leaves room without sitting near flash-lite's 65,536 output ceiling. Verified that Gemini and
-# NVIDIA both accept this value.
+# Large batches can exceed 20k output tokens; a length-truncated reply is discarded.
 AI_MAX_TOKENS = int(os.getenv('AI_MAX_TOKENS', '32000'))
-# AI search sends the whole inventory as context. Verbose descriptions run ~2,400 chars per item,
-# so the old flat 40,000-char refusal would have disabled search after about 16 items -- roughly
-# one box. Budget for the SMALLEST context in the provider chain (NVIDIA's 256k), not Gemini's 1M,
-# and trim the payload in stages rather than refusing outright.
 AI_SEARCH_BUDGET = int(os.getenv('AI_SEARCH_BUDGET', '300000'))
 AI_PROVIDER_TIMEOUT = int(os.getenv('AI_PROVIDER_TIMEOUT', '60'))
 AI_TOTAL_TIMEOUT = int(os.getenv('AI_TOTAL_TIMEOUT', '150'))
