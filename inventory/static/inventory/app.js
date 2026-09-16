@@ -150,6 +150,46 @@ function uploadForm() {
   $('#dialog').addEventListener('close',()=>urls.splice(0).forEach(URL.revokeObjectURL),{once:true});
   render();
 }
+// Selection lives in the DOM rather than a parallel array, so it cannot drift from what is shown.
+const picked = () => [...document.querySelectorAll('.pick-item:checked')].map(c => Number(c.value));
+function selectionChanged() {
+  const count = picked().length, all = document.querySelectorAll('.pick-item').length;
+  const label = $('#select-count');
+  if (label) label.textContent = count ? `${count} of ${all} selected` : 'Select items to move or delete them together.';
+  document.querySelectorAll('[data-action="bulk-move"],[data-action="bulk-delete"]').forEach(b => b.disabled = !count);
+  document.querySelectorAll('.pick-item').forEach(c => c.closest('.item-row').classList.toggle('picked', c.checked));
+  const toggle = $('#select-all');
+  if (toggle) { toggle.checked = count > 0 && count === all; toggle.indeterminate = count > 0 && count < all; }
+}
+// Revisions come from the bootstrap, so the batch carries the same optimistic-concurrency check the
+// single-item form does. The page reloads afterwards: stale revisions would 409 on the next action.
+function selectedWithRevisions() {
+  const ids = picked();
+  return state.items.filter(i => ids.includes(i.id)).map(i => ({id: i.id, revision: i.revision}));
+}
+async function bulkDelete() {
+  const items = selectedWithRevisions();
+  if (!items.length) return;
+  const names = state.items.filter(i => items.some(s => s.id === i.id)).map(i => i.name);
+  const preview = names.slice(0, 4).join(', ') + (names.length > 4 ? `, and ${names.length - 4} more` : '');
+  if (!confirm(`Delete ${items.length} ${items.length === 1 ? 'entry' : 'entries'} from Box ${state.box.number}?\n\n${preview}\n\nThis cannot be undone.`)) return;
+  await api('/api/items/bulk/', {action: 'delete', items});
+  success(`${items.length} ${items.length === 1 ? 'entry' : 'entries'} deleted.`);
+}
+function bulkMoveForm() {
+  const items = selectedWithRevisions();
+  if (!items.length) return;
+  const options = state.boxes.filter(b => b.number !== state.box.number)
+    .map(b => `<option value="${b.number}">${esc(b.category)} · Box ${b.number}${b.location ? ` · ${esc(b.location)}` : ''}</option>`).join('');
+  if (!options) { notice('There is no other active box to move them into. Create one first.', true); return; }
+  modal(`Move ${items.length} ${items.length === 1 ? 'entry' : 'entries'}`,
+    `<p class="hint">Moving from Box ${state.box.number}. Names and descriptions are unchanged.</p><div class="field"><label for="f-box">Destination box</label><select id="f-box" name="box">${options}</select></div>`,
+    'Move entries', async f => {
+      const box = Number(f.get('box'));
+      await api('/api/items/bulk/', {action: 'move', items, box});
+      success(`${items.length} ${items.length === 1 ? 'entry' : 'entries'} moved to Box ${box}.`, `/box/${box}`);
+    });
+}
 document.addEventListener('click', async e => {
   const button=e.target.closest('[data-action]');if(!button)return;
   const action=button.dataset.action;
@@ -164,9 +204,22 @@ document.addEventListener('click', async e => {
     if(action==='edit-item')itemForm(item);
     if(action==='flag')flagForm(item);
     if(action==='upload')uploadForm();
+    if(action==='bulk-move')bulkMoveForm();
+    if(action==='bulk-delete')await bulkDelete();
     if(action==='resolve'||action==='dismiss'){button.disabled=true;await api(`/api/flags/${button.dataset.flag}/`,{status:action==='resolve'?'resolved':'dismissed'});success('Flag updated.');}
   } catch(error){notice(error.message,true);button.disabled=false;}
 });
+if(document.querySelector('.pick-item')) {
+  document.addEventListener('change', e => {
+    if (e.target.id === 'select-all') {
+      document.querySelectorAll('.pick-item').forEach(c => c.checked = e.target.checked);
+      selectionChanged();
+    } else if (e.target.classList.contains('pick-item')) {
+      selectionChanged();
+    }
+  });
+  selectionChanged();
+}
 if(new URLSearchParams(location.search).has('login'))loginForm();
 // Search stays on the index; ordinary search remains available while AI is busy.
 let searchVersion=0;

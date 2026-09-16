@@ -9,6 +9,7 @@ urlpatterns = [
     path('api/boxes/<int:number>/edit/', v.box_edit),
     path('api/search/', v.search), path('api/items/create/', v.item_create),
     path('api/items/<int:pk>/edit/', v.item_edit),
+    path('api/items/bulk/', v.item_bulk),
     path('api/boxes/<int:number>/flags/', v.flag_create),
     path('api/flags/', v.flags), path('api/flags/<int:pk>/', v.flag_edit),
 ]

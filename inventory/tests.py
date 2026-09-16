@@ -95,6 +95,78 @@ from .models import Draft
 from . import drafts
 
 @override_settings(SECURE_SSL_REDIRECT=False, SESSION_COOKIE_SECURE=False)
+class BulkItemTests(TestCase):
+    def setUp(self):
+        self.owner = get_user_model().objects.create_user('owner2', password='test-password', is_staff=True)
+        self.client = Client()
+        self.client.force_login(self.owner)
+        self.box = Box.objects.create(number=40, category='Parts')
+        self.other = Box.objects.create(number=41, category='Spares')
+        self.items = [Item.objects.create(box=self.box, name=f'Item {n}') for n in range(4)]
+
+    def post(self, payload):
+        return self.client.post('/api/items/bulk/', json.dumps(payload), content_type='application/json')
+
+    def selection(self, items=None):
+        return [{'id': i.pk, 'revision': i.revision} for i in (items if items is not None else self.items)]
+
+    def test_bulk_delete_empties_a_box_so_it_can_be_archived(self):
+        # The point of the feature: box_edit refuses retirement while items remain.
+        response = self.client.post(f'/api/boxes/{self.box.number}/edit/',
+            json.dumps({'revision': self.box.revision, 'category': 'Parts', 'retired': True}), content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.post({'action': 'delete', 'items': self.selection()}).status_code, 200)
+        self.assertEqual(Item.objects.filter(box=self.box).count(), 0)
+        self.box.refresh_from_db()
+        response = self.client.post(f'/api/boxes/{self.box.number}/edit/',
+            json.dumps({'revision': self.box.revision, 'category': 'Parts', 'retired': True}), content_type='application/json')
+        self.assertEqual(response.status_code, 200, 'an emptied box must now be archivable')
+
+    def test_bulk_delete_keeps_flag_history(self):
+        flag = Flag.objects.create(box=self.box, item=self.items[0], item_name=self.items[0].name, reason='missing')
+        self.assertEqual(self.post({'action': 'delete', 'items': self.selection([self.items[0]])}).status_code, 200)
+        flag.refresh_from_db()
+        self.assertIsNone(flag.item)
+        self.assertEqual(flag.item_name, 'Item 0')
+
+    def test_bulk_move_transfers_and_bumps_revisions(self):
+        response = self.post({'action': 'move', 'items': self.selection(), 'box': self.other.number})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Item.objects.filter(box=self.other).count(), 4)
+        self.assertEqual(Item.objects.filter(box=self.box).count(), 0)
+        self.assertTrue(all(i.revision == 1 for i in Item.objects.all()))
+
+    def test_bulk_move_into_a_retired_box_is_refused(self):
+        self.other.retired = True
+        self.other.save(update_fields=['retired'])
+        self.assertEqual(self.post({'action': 'move', 'items': self.selection(), 'box': self.other.number}).status_code, 404)
+        self.assertEqual(Item.objects.filter(box=self.box).count(), 4, 'nothing may move into a retired box')
+
+    def test_stale_revision_rejects_the_whole_batch(self):
+        self.items[2].name = 'Changed elsewhere'
+        self.items[2].revision += 1
+        self.items[2].save()
+        stale = [{'id': i.pk, 'revision': 0} for i in self.items]
+        response = self.post({'action': 'delete', 'items': stale})
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(Item.objects.filter(box=self.box).count(), 4, 'a conflicting batch must not partly apply')
+
+    def test_rejects_malformed_selections(self):
+        self.assertEqual(self.post({'action': 'delete', 'items': []}).status_code, 400)
+        self.assertEqual(self.post({'action': 'delete', 'items': 'all'}).status_code, 400)
+        self.assertEqual(self.post({'action': 'burn', 'items': self.selection()}).status_code, 400)
+        duplicate = self.selection([self.items[0]]) * 2
+        self.assertEqual(self.post({'action': 'delete', 'items': duplicate}).status_code, 400)
+        missing = [{'id': 99999, 'revision': 0}]
+        self.assertEqual(self.post({'action': 'delete', 'items': missing}).status_code, 409)
+        self.assertEqual(Item.objects.filter(box=self.box).count(), 4)
+
+    def test_requires_owner(self):
+        self.client.logout()
+        self.assertEqual(self.post({'action': 'delete', 'items': self.selection()}).status_code, 403)
+        self.assertEqual(Item.objects.filter(box=self.box).count(), 4)
+
+
 class DraftTests(TestCase):
     def setUp(self):
         CoreTests.setUp(self)

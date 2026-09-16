@@ -78,6 +78,8 @@ Provider processing is external even though the inventory is local. Local deleti
 .venv/bin/python manage.py check_ai --provider auto
 ```
 
+Owner-only `POST /api/items/bulk/` applies one action to a selection: `{"action":"delete"|"move", "items":[{"id":n,"revision":n}], "box":n}`. It carries the same per-item revision check as single-item editing and is all-or-nothing -- a stale revision or a missing row returns 409 and changes nothing, so a partly-applied batch cannot leave the owner guessing. Bulk edit means moving items between boxes; sharing a name or description across distinct items is meaningless and `entries()` requires a non-empty name per row. The selection UI is owner-only, and emptying a box this way is what makes it archivable, since `box_edit` refuses retirement while items remain.
+
 ## Deployment and backups
 
 Use the systemd examples only after choosing the VM and inspecting the proxy/network configuration. Install under `/opt/inventory`, create an unprivileged `inventory` user, and place runtime data at `/var/lib/inventory`. Set `DATA_DIR=/var/lib/inventory`, DEBUG=0, production secrets, and ALLOWED_HOSTS=box.clouddev.dad in a mode-0600 `/etc/inventory.env`. Systemd loads the root-readable environment file for both the application and cleanup service. Keep code read-only to the service account.

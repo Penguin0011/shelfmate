@@ -146,6 +146,45 @@ def item_edit(request, pk):
     return JsonResponse(item_data(item))
 
 
+@endpoint(['POST'], owner=True)
+def item_bulk(request):
+    # Emptying a box one item at a time was the only way to make it archivable, since box_edit
+    # refuses retirement while items remain. Bulk edit means moving items between boxes: setting a
+    # shared name or description across distinct items is meaningless, and entries() requires a
+    # non-empty name per row anyway.
+    data = body(request)
+    action = string(data, 'action', 10, True)
+    if action not in ('delete', 'move'):
+        raise Invalid('Invalid bulk action')
+    rows = data.get('items')
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 200:
+        raise Invalid('Select between 1 and 200 items')
+    wanted = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise Invalid('Invalid selection')
+        pk = integer(row, 'id')
+        if pk in wanted:
+            raise Invalid('The same item was selected twice')
+        wanted[pk] = integer(row, 'revision')
+    # All-or-nothing: a batch that silently skipped changed rows would leave the owner unsure what
+    # happened. SQLite has no SELECT FOR UPDATE, but the connection runs in IMMEDIATE mode, so the
+    # write lock is taken at BEGIN and concurrent batches serialise rather than interleave.
+    with transaction.atomic():
+        items = list(Item.objects.filter(pk__in=wanted).order_by('pk'))
+        if len(items) != len(wanted):
+            return JsonResponse({'error': 'Some of those items no longer exist; reload'}, status=409)
+        if any(item.revision != wanted[item.pk] for item in items):
+            return JsonResponse({'error': 'Item changed; reload'}, status=409)
+        if action == 'delete':
+            # Queryset delete is one statement, and the collector still applies Flag.item SET_NULL.
+            Item.objects.filter(pk__in=wanted).delete()
+            return JsonResponse({'deleted': len(items)})
+        box = get_object_or_404(Box, number=integer(data, 'box'), retired=False)
+        Item.objects.filter(pk__in=wanted).update(box=box, revision=F('revision') + 1)
+    return JsonResponse({'moved': len(items), 'box': box.number})
+
+
 @endpoint(['POST'])
 def flag_create(request, number):
     if limited(request, 'flag', 20):
