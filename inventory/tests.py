@@ -232,7 +232,7 @@ class DraftTests(TestCase):
 
 from . import ai
 
-@override_settings(SECURE_SSL_REDIRECT=False, NVIDIA_API_KEY='test', OPENROUTER_API_KEY='test')
+@override_settings(SECURE_SSL_REDIRECT=False, FIREWORKS_API_KEY='', GEMINI_API_KEY='', NVIDIA_API_KEY='test', OPENROUTER_API_KEY='test')
 class AITests(TestCase):
     def test_fallback_and_schema_validation(self):
         with patch('inventory.ai.request') as call:
@@ -256,25 +256,25 @@ class AITests(TestCase):
         # A missing key raises AIError, which is deliberately not retryable. If that escaped the
         # provider loop it would abort the whole chain, so an unset key must skip instead.
         entries = __import__('inventory.validation', fromlist=['entries']).entries
-        with override_settings(GEMINI_API_KEY='', OPENROUTER_API_KEY='', NVIDIA_API_KEY='configured'):
+        with override_settings(FIREWORKS_API_KEY='', GEMINI_API_KEY='', OPENROUTER_API_KEY='', NVIDIA_API_KEY='configured'):
             with patch('inventory.ai.request') as call:
                 call.side_effect = [([{'name': 'Cable'}], 'nvidia-model')]
                 self.assertEqual(ai.complete([], entries)[0]['name'], 'Cable')
                 self.assertEqual(call.call_count, 1)
                 self.assertEqual(call.call_args.args[0], 'NVIDIA')
-        with override_settings(GEMINI_API_KEY='', OPENROUTER_API_KEY='', NVIDIA_API_KEY=''):
+        with override_settings(FIREWORKS_API_KEY='', GEMINI_API_KEY='', OPENROUTER_API_KEY='', NVIDIA_API_KEY=''):
             with patch('inventory.ai.request') as call:
                 with self.assertRaises(ai.AIError):
                     ai.complete([], entries)
                 self.assertEqual(call.call_count, 0)
-    def test_gemini_is_tried_before_the_slower_providers(self):
+    def test_fireworks_is_tried_before_the_slower_providers(self):
         entries = __import__('inventory.validation', fromlist=['entries']).entries
-        with override_settings(GEMINI_API_KEY='g', OPENROUTER_API_KEY='o', NVIDIA_API_KEY='n'):
+        with override_settings(FIREWORKS_API_KEY='f', GEMINI_API_KEY='g', OPENROUTER_API_KEY='o', NVIDIA_API_KEY='n'):
             with patch('inventory.ai.request') as call:
-                call.side_effect = [([{'name': 'Screws'}], 'gemini-model')]
+                call.side_effect = [([{'name': 'Screws'}], 'fireworks-model')]
                 self.assertEqual(ai.complete([], entries)[0]['name'], 'Screws')
                 self.assertEqual(call.call_count, 1)
-                self.assertEqual(call.call_args.args[0], 'Gemini')
+                self.assertEqual(call.call_args.args[0], 'Fireworks')
     def test_verbose_descriptions_degrade_search_instead_of_breaking_it(self):
         # Verbose descriptions are the point of the recognition prompt, but AI search sends the whole
         # inventory as context. A flat refusal would disable search after roughly one box, so the
@@ -306,19 +306,20 @@ class AITests(TestCase):
         # failures that say nothing about the providers behind them. Only a content refusal stops the
         # chain. gemini-2.5-flash returning 404 "no longer available to new users" is the real case.
         entries = __import__('inventory.validation', fromlist=['entries']).entries
-        with override_settings(GEMINI_API_KEY='g', OPENROUTER_API_KEY='o', NVIDIA_API_KEY='n'):
+        with override_settings(FIREWORKS_API_KEY='f', GEMINI_API_KEY='g', OPENROUTER_API_KEY='o', NVIDIA_API_KEY='n'):
             with patch('inventory.ai.request') as call:
-                call.side_effect = [ai.AIError('Gemini rejected the request'),
+                call.side_effect = [ai.AIError('Fireworks rejected the request'),
+                                    ai.AIError('Gemini rejected the request'),
                                     ai.AIError('OpenRouter authentication or access failed'),
                                     ([{'name': 'Screws'}], 'nvidia-model')]
                 self.assertEqual(ai.complete([], entries)[0]['name'], 'Screws')
-                self.assertEqual(call.call_count, 3)
+                self.assertEqual(call.call_count, 4)
             # Every provider rejecting still ends as a single AIError, not a leaked provider message.
             with patch('inventory.ai.request') as call:
                 call.side_effect = ai.AIError('rejected')
                 with self.assertRaises(ai.AIError):
                     ai.complete([], entries)
-                self.assertEqual(call.call_count, 3)
+                self.assertEqual(call.call_count, 4)
             # A refusal from the first provider still stops immediately.
             with patch('inventory.ai.request') as call:
                 call.side_effect = [ai.Refused('declined'), ([{'name': 'Screws'}], 'm')]

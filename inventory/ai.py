@@ -69,8 +69,9 @@ def request(provider, key, model, url, messages, timeout=None):
 
 
 def _run(messages, validate):
-    # Fastest first, so a slow provider never starves the ones behind it.
+    # Most reliable first, then fastest; a slow provider must never starve the ones behind it.
     providers = [
+        ('Fireworks', settings.FIREWORKS_API_KEY, settings.FIREWORKS_MODEL, 'https://api.fireworks.ai/inference/v1/chat/completions'),
         ('Gemini', settings.GEMINI_API_KEY, settings.GEMINI_MODEL, 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'),
         ('OpenRouter', settings.OPENROUTER_API_KEY, settings.OPENROUTER_MODEL, 'https://openrouter.ai/api/v1/chat/completions'),
         ('NVIDIA', settings.NVIDIA_API_KEY, settings.NVIDIA_MODEL, 'https://integrate.api.nvidia.com/v1/chat/completions'),

@@ -73,6 +73,7 @@ Provider processing is external even though the inventory is local. Local deleti
 .venv/bin/python scripts/check_concurrent_save.py
 npm run test:ui
 # Explicit live requests using generated non-sensitive label images:
+.venv/bin/python manage.py check_ai --provider fireworks
 .venv/bin/python manage.py check_ai --provider nvidia
 .venv/bin/python manage.py check_ai --provider openrouter
 .venv/bin/python manage.py check_ai --provider auto

@@ -101,13 +101,18 @@ Photo recognition (`inventory/ai_views.py: analyze`) and AI search (`: search`) 
 
 | order | provider | model | notes |
 |---|---|---|---|
-| 1 | Gemini | `gemini-3.1-flash-lite` | ~5–7 s. OpenAI-compatible endpoint, so no separate client |
-| 2 | OpenRouter | `dots-studio/dots-3-note-preview:free` | ~15–40 s |
-| 3 | NVIDIA | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` | a *reasoning* model; measured **130 s** on a real 2-photo batch |
+| 1 | Fireworks | `accounts/fireworks/models/deepseek-v4p1-flash` | paid tier. Vision-capable, 1M context. Real-photo latency **not yet measured** — the synthetic check ran 9–27 s wall clock, which is not comparable to the figures below |
+| 2 | Gemini | `gemini-3.1-flash-lite` | ~5–7 s. OpenAI-compatible endpoint, so no separate client |
+| 3 | OpenRouter | `dots-studio/dots-3-note-preview:free` | ~15–40 s |
+| 4 | NVIDIA | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` | a *reasoning* model; measured **130 s** on a real 2-photo batch |
 
-NVIDIA is last deliberately: a 130 s attempt in front would consume the budget and starve the
-providers behind it. Every model is env-swappable (`GEMINI_MODEL`, `OPENROUTER_MODEL`,
-`NVIDIA_MODEL`) — this matters, because `:free` models get rate-limited and retired.
+Fireworks leads on **reliability, not latency** — it is the one paid account in the chain, and the
+free tiers below it fail regularly (see below). Gemini is still faster on a good day, so it stays
+directly behind. NVIDIA is last deliberately: a 130 s attempt in front would consume the budget and
+starve the providers behind it. Every model is env-swappable (`FIREWORKS_MODEL`, `GEMINI_MODEL`,
+`OPENROUTER_MODEL`, `NVIDIA_MODEL`) — this matters, because `:free` models get rate-limited and
+retired. DeepSeek ships text-only variants too; `deepseek-v4p1-flash` is pinned because recognition
+sends photos and a text-only model would burn the first attempt on every one of them.
 
 A provider with **no key configured is skipped**, not fatal. `request()` raises `AIError` for a
 missing key and `AIError` is deliberately non-retryable, so calling it with an empty key would
@@ -147,14 +152,15 @@ under the proxy host's **Advanced** tab. Raise that first, then the layers below
 
 ### Free tiers run out
 
-All three providers are on free tiers and all three fail regularly and simultaneously:
+The three fallbacks are on free tiers and all three fail regularly and simultaneously — which is
+why Fireworks was added in front on a paid key:
 
 - OpenRouter: ~50 requests/day without credits. **$10 of credit raises this to 1000/day** and is
   the cheapest reliability improvement available.
 - Gemini: transient `503 high demand`.
 - NVIDIA: `503 Worker local total request limit reached`.
 
-This is not a bug, and the chain handles it — when all three are down the request fails cleanly in
+This is not a bug, and the chain handles it — when all of them are down the request fails cleanly in
 ~6 s with the draft preserved. Budget verification runs accordingly; it is easy to exhaust a day's
 quota while testing.
 
@@ -213,7 +219,7 @@ npm run test:ui                          # requires Chrome
 .venv/bin/python manage.py runserver
 ```
 
-`manage.py check_ai --provider gemini|openrouter|nvidia|auto` makes a real API call against a
+`manage.py check_ai --provider fireworks|gemini|openrouter|nvidia|auto` makes a real API call against a
 generated label image. Useful for confirming a key or model works; it does **not** represent real
 photo load — a synthetic 640×320 image is ~316 prompt tokens against ~3,500 for two real photos,
 so it under-tests both latency and output shape. Measure with real photos before drawing
