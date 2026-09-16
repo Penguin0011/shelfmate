@@ -9,13 +9,6 @@ def expiry():
     return timezone.now() + timedelta(hours=24)
 
 
-class Location(models.Model):
-    name = models.CharField(max_length=120, unique=True)
-
-    class Meta:
-        ordering = ["name"]
-
-
 class Box(models.Model):
     number = models.PositiveIntegerField(unique=True)
     category = models.CharField(max_length=120)

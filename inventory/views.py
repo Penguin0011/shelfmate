@@ -6,16 +6,8 @@ from django.shortcuts import get_object_or_404
 from django.middleware.csrf import get_token
 from django.utils import timezone
 from .access import endpoint, body, limited
-from .models import Box, Item, Flag, Location
+from .models import Box, Item, Flag
 from .validation import Invalid, integer, string, entries
-
-
-def remember_location(data):
-    name = string(data, "location", 120)
-    if not name:
-        return ""
-    existing = Location.objects.filter(name__iexact=name).first()
-    return existing.name if existing else Location.objects.create(name=name).name
 
 
 def item_data(item):
@@ -88,12 +80,12 @@ def box_create(request):
             if not box.retired or box.items.exists():
                 return JsonResponse({'error': 'An active box already uses this number'}, status=409)
             box.category = category
-            box.location = remember_location(data) if "location" in data else box.location
+            box.location = string(data, 'location', 120) if 'location' in data else box.location
             box.retired = False
             box.revision += 1
             box.save(update_fields=['category', 'location', 'retired', 'revision'])
             return JsonResponse({'number': box.number, 'restored': True})
-        box = Box.objects.create(number=number, category=category, location=remember_location(data))
+        box = Box.objects.create(number=number, category=category, location=string(data, 'location', 120))
     return JsonResponse({'number': box.number, 'restored': False}, status=201)
 
 
@@ -111,7 +103,7 @@ def box_edit(request, number):
             raise Invalid('Move or remove contents before retirement')
         box.category = string(data, 'category', 120, True)
         if 'location' in data:
-            box.location = remember_location(data)
+            box.location = string(data, 'location', 120)
         box.retired = retired
         box.revision += 1
         box.save()
