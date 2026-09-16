@@ -1,4 +1,3 @@
-import asyncio
 import base64
 import io
 from PIL import Image, ImageDraw
@@ -28,7 +27,7 @@ class Command(BaseCommand):
                 parsed=complete([{'role':'user','content':content}], suggestions)
                 model='automatic failover'
             else:
-                result, model=asyncio.run(request(*args,[{'role':'user','content':content}]))
+                result, model=request(*args,[{'role':'user','content':content}])
                 parsed=suggestions(result)
         except (AIError, Invalid) as exc:
             raise CommandError(str(exc)) from None

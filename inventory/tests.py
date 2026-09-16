@@ -221,52 +221,51 @@ class DraftTests(TestCase):
         with self.assertRaises(ValueError):
             drafts.upload(self.owner, self.box, [SimpleUploadedFile('bad.jpg', b'not an image')])
 
-from unittest.mock import AsyncMock
 from . import ai
 
 @override_settings(SECURE_SSL_REDIRECT=False, NVIDIA_API_KEY='test', OPENROUTER_API_KEY='test')
 class AITests(TestCase):
     def test_fallback_and_schema_validation(self):
-        with patch('inventory.ai.request', new_callable=AsyncMock) as call:
+        with patch('inventory.ai.request') as call:
             call.side_effect = [ai.Retryable('down'), ([{'name':'Cable'}], 'free-model')]
             self.assertEqual(ai.complete([], __import__('inventory.validation',fromlist=['entries']).entries)[0]['name'], 'Cable')
-            self.assertEqual(call.await_count, 2)
-        with patch('inventory.ai.request', new_callable=AsyncMock) as call:
+            self.assertEqual(call.call_count, 2)
+        with patch('inventory.ai.request') as call:
             call.side_effect = [({'invalid':True}, 'primary'), ([], 'free-model')]
             self.assertEqual(ai.complete([], __import__('inventory.validation',fromlist=['entries']).entries), [])
-            self.assertEqual(call.await_count, 2)
+            self.assertEqual(call.call_count, 2)
     def test_no_fallback_for_refusal_or_valid_empty(self):
-        with patch('inventory.ai.request', new_callable=AsyncMock) as call:
+        with patch('inventory.ai.request') as call:
             call.side_effect = ai.Refused('refused')
             with self.assertRaises(ai.AIError):
                 ai.complete([], lambda x:x)
-            self.assertEqual(call.await_count, 1, 'a content refusal must not shop the next provider')
-        with patch('inventory.ai.request', new_callable=AsyncMock, return_value=([], 'primary')) as call:
+            self.assertEqual(call.call_count, 1, 'a content refusal must not shop the next provider')
+        with patch('inventory.ai.request', return_value=([], 'primary')) as call:
             self.assertEqual(ai.complete([], lambda x:x), [])
-            self.assertEqual(call.await_count, 1)
+            self.assertEqual(call.call_count, 1)
     def test_unconfigured_providers_are_skipped_not_fatal(self):
         # A missing key raises AIError, which is deliberately not retryable. If that escaped the
         # provider loop it would abort the whole chain, so an unset key must skip instead.
         entries = __import__('inventory.validation', fromlist=['entries']).entries
         with override_settings(GEMINI_API_KEY='', OPENROUTER_API_KEY='', NVIDIA_API_KEY='configured'):
-            with patch('inventory.ai.request', new_callable=AsyncMock) as call:
+            with patch('inventory.ai.request') as call:
                 call.side_effect = [([{'name': 'Cable'}], 'nvidia-model')]
                 self.assertEqual(ai.complete([], entries)[0]['name'], 'Cable')
-                self.assertEqual(call.await_count, 1)
-                self.assertEqual(call.await_args.args[0], 'NVIDIA')
+                self.assertEqual(call.call_count, 1)
+                self.assertEqual(call.call_args.args[0], 'NVIDIA')
         with override_settings(GEMINI_API_KEY='', OPENROUTER_API_KEY='', NVIDIA_API_KEY=''):
-            with patch('inventory.ai.request', new_callable=AsyncMock) as call:
+            with patch('inventory.ai.request') as call:
                 with self.assertRaises(ai.AIError):
                     ai.complete([], entries)
-                self.assertEqual(call.await_count, 0)
+                self.assertEqual(call.call_count, 0)
     def test_gemini_is_tried_before_the_slower_providers(self):
         entries = __import__('inventory.validation', fromlist=['entries']).entries
         with override_settings(GEMINI_API_KEY='g', OPENROUTER_API_KEY='o', NVIDIA_API_KEY='n'):
-            with patch('inventory.ai.request', new_callable=AsyncMock) as call:
+            with patch('inventory.ai.request') as call:
                 call.side_effect = [([{'name': 'Screws'}], 'gemini-model')]
                 self.assertEqual(ai.complete([], entries)[0]['name'], 'Screws')
-                self.assertEqual(call.await_count, 1)
-                self.assertEqual(call.await_args.args[0], 'Gemini')
+                self.assertEqual(call.call_count, 1)
+                self.assertEqual(call.call_args.args[0], 'Gemini')
     def test_verbose_descriptions_degrade_search_instead_of_breaking_it(self):
         # Verbose descriptions are the point of the recognition prompt, but AI search sends the whole
         # inventory as context. A flat refusal would disable search after roughly one box, so the
@@ -299,24 +298,24 @@ class AITests(TestCase):
         # chain. gemini-2.5-flash returning 404 "no longer available to new users" is the real case.
         entries = __import__('inventory.validation', fromlist=['entries']).entries
         with override_settings(GEMINI_API_KEY='g', OPENROUTER_API_KEY='o', NVIDIA_API_KEY='n'):
-            with patch('inventory.ai.request', new_callable=AsyncMock) as call:
+            with patch('inventory.ai.request') as call:
                 call.side_effect = [ai.AIError('Gemini rejected the request'),
                                     ai.AIError('OpenRouter authentication or access failed'),
                                     ([{'name': 'Screws'}], 'nvidia-model')]
                 self.assertEqual(ai.complete([], entries)[0]['name'], 'Screws')
-                self.assertEqual(call.await_count, 3)
+                self.assertEqual(call.call_count, 3)
             # Every provider rejecting still ends as a single AIError, not a leaked provider message.
-            with patch('inventory.ai.request', new_callable=AsyncMock) as call:
+            with patch('inventory.ai.request') as call:
                 call.side_effect = ai.AIError('rejected')
                 with self.assertRaises(ai.AIError):
                     ai.complete([], entries)
-                self.assertEqual(call.await_count, 3)
+                self.assertEqual(call.call_count, 3)
             # A refusal from the first provider still stops immediately.
-            with patch('inventory.ai.request', new_callable=AsyncMock) as call:
+            with patch('inventory.ai.request') as call:
                 call.side_effect = [ai.Refused('declined'), ([{'name': 'Screws'}], 'm')]
                 with self.assertRaises(ai.Refused):
                     ai.complete([], entries)
-                self.assertEqual(call.await_count, 1)
+                self.assertEqual(call.call_count, 1)
     def test_search_rejects_hallucination_and_reloads_location(self):
         buckets.clear()
         box=Box.objects.create(number=1,category='PC')
@@ -341,16 +340,16 @@ class AITests(TestCase):
         self.assertEqual(draft.state,'cancelled')
         self.assertEqual(draft.entries,[])
 
-import asyncio
 import httpx
+import time
 from .validation import entries as validate_entries
 
 class TransportTests(TestCase):
     def run_response(self, status, payload):
-        real_client=httpx.AsyncClient
+        real_client=httpx.Client
         transport=httpx.MockTransport(lambda req:httpx.Response(status,json=payload))
-        with patch('inventory.ai.httpx.AsyncClient',side_effect=lambda **kwargs:real_client(transport=transport,**kwargs)):
-            return asyncio.run(ai.request('test','key','model','https://example.test',[]))
+        with patch('inventory.ai.httpx.Client',side_effect=lambda **kwargs:real_client(transport=transport,**kwargs)):
+            return ai.request('test','key','model','https://example.test',[])
     def test_transport_error_classification(self):
         for status in [410,429,500,503]:
             with self.assertRaises(ai.Retryable): self.run_response(status,{})
@@ -363,10 +362,10 @@ class TransportTests(TestCase):
         result,_=self.run_response(200,{'choices':[{'message':{'content':'```json\n[]\n```'}}]})
         self.assertEqual(result,[])
     def test_whole_call_deadline(self):
-        async def slow(*args,**kwargs):
-            await asyncio.sleep(1)
-        real_timeout=asyncio.timeout
-        with patch('inventory.ai.request',side_effect=slow), patch('inventory.ai.asyncio.timeout',side_effect=lambda seconds:real_timeout(.01)):
+        def slow(*args,**kwargs):
+            time.sleep(.02)
+            return [], 'slow-model'
+        with override_settings(AI_TOTAL_TIMEOUT=.01), patch('inventory.ai.request',side_effect=slow):
             with self.assertRaises(ai.AIError): ai.complete([],validate_entries)
 
 class NormalizationTests(TestCase):
