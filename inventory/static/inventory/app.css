@@ -45,7 +45,7 @@ h1,h2,h3,.box-category{overflow-wrap:anywhere}
 .title-line>div,.box-category{min-width:0}
 
 /* Uppercase label voice — the Swiss workhorse. */
-.eyebrow,.section-label,.group-head,.topbar,.wordmark,.session,.box-number,
+.eyebrow,.section-label,.group-head,.topbar,.session,.box-number,
 .match-label,.stat-label,.save-status,.select-bar,.history-row .eyebrow{
   font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;
 }
@@ -105,9 +105,7 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
 .skip{position:absolute;top:-100px;left:0;z-index:10;background:var(--ink);color:var(--sheet);padding:12px 18px;font-weight:600}
 .skip:focus{top:0}
 
-.site-heading{max-width:840px;margin:0 auto 18px;display:flex;align-items:center;justify-content:space-between;gap:20px}
-.wordmark{display:flex;align-items:center;gap:10px;letter-spacing:.2em}
-.session{display:flex;align-items:center;gap:10px;color:var(--muted)}
+.session{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted)}
 .session-dot{width:8px;height:8px;background:var(--red);flex:none}
 .session .text-button{letter-spacing:.14em}
 
@@ -202,7 +200,10 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
 .archived-boxes summary::after{content:"";width:9px;height:9px;flex:none;margin-left:auto;border:1px solid var(--muted)}
 .archived-boxes[open] summary::after{background:var(--red);border-color:var(--red)}
 
-.index-footer{padding:20px var(--pad) 24px;border-top:1px solid var(--ink)}
+.index-footer{
+  display:flex;align-items:center;justify-content:space-between;gap:14px 24px;flex-wrap:wrap;
+  padding:18px var(--pad) 20px;border-top:1px solid var(--ink);
+}
 .footer-note{font-size:13px;line-height:1.6;color:var(--muted)}
 
 /* ---------- box contents ---------- */
@@ -321,10 +322,7 @@ dialog::backdrop{background:#000000d9}
 @media(max-width:560px){
   :root{--gutter:48px}
   body{padding:16px 10px 28px}
-  .site-heading{gap:10px;margin-bottom:12px}
-  .wordmark{letter-spacing:.16em;font-size:10px}
-  .session{gap:8px;flex-wrap:wrap;justify-content:flex-end;font-size:10px}
-  .session>span:not(.session-dot){display:none}
+  .session{gap:8px;font-size:10px}
   .session .text-button{min-height:34px;font-size:11px}
   .topbar{padding-top:16px;gap:10px}
   .topbar>a:first-child span{display:none}
