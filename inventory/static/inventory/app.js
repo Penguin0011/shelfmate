@@ -384,36 +384,48 @@ if(state.draft) {
   // a running draft and it stays read-only until the result lands, then redraws with it.
   // Filing control for a draft that has no box yet. It is the one input allowed while recognition
   // runs: /box/ assigns without bumping revision, so it cannot invalidate the result in flight.
+  // Both of these stay editable for the life of the draft, including mid-recognition. Filing is not
+  // a one-way door: a mis-tap is corrected by picking again, not by saving and moving items after.
   function filingField(){
-    if(draft.box)return '';
-    const options=state.boxes.map(b=>`<option value="${b.number}">${esc(b.category)} · Box ${b.number}${b.location?` · ${esc(b.location)}`:''}</option>`).join('');
-    return `<div class="field filing"><label for="f-draft-box">Which box does this go in?</label><select id="f-draft-box"><option value="">Choose a box…</option>${options}</select></div>`;
+    const options=state.boxes.map(b=>`<option value="${b.number}" ${b.number===draft.box?'selected':''}>${esc(b.category)} · Box ${b.number}${b.location?` · ${esc(b.location)}`:''}</option>`).join('');
+    return `<div class="field filing"><label for="f-draft-box">${draft.box?'Filed in':'Which box does this go in?'}</label><select id="f-draft-box"><option value="">Choose a box…</option>${options}</select></div>`
+      + `<div class="field filing"><label for="f-draft-note">Anything we should know? (optional)</label><textarea id="f-draft-note" maxlength="1000" rows="2" placeholder="e.g. mostly FPV drone parts">${esc(draft.context||'')}</textarea><p class="hint">Steers recognition — including the next pass if this one misses. Never becomes an entry.</p></div>`;
+  }
+  // A redraw mid-recognition would tear down the live progress panel and orphan its ticker, so while
+  // busy we update in place instead. The draw that follows the result renders everything anyway.
+  async function saveMeta(fields,element,after){
+    element.disabled=true;
+    try{
+      const updated=await api(`/api/drafts/${draft.id}/meta/`,fields);
+      draft.box=updated.box; draft.context=updated.context; draft.duplicates=updated.duplicates;
+      after();
+      if(!busy&&!draft.analyzing)draw();
+    }catch(error){notice(error.message,true);}
+    finally{element.disabled=false;}
   }
   function wireFiling(){
-    const select=$('#f-draft-box');
-    if(!select)return;
-    select.onchange=async () => {
+    const select=$('#f-draft-box'), note=$('#f-draft-note');
+    if(select)select.onchange=()=>{
       const number=Number(select.value);
       if(!number)return;
-      select.disabled=true;
-      try{
-        await api(`/api/drafts/${draft.id}/box/`,{box:number});
-        draft.box=number;      // optimistic: the 3s poll must not reset the choice under the user
+      saveMeta({box:number},select,()=>{
         notice(`Filed under Box ${number}.`);
-        // Mid-recognition the editor is showing live progress; a redraw would tear that down and
-        // orphan the ticker. The draw that follows the result renders the filed state anyway.
-        if(busy){const field=select.closest('.filing');if(field)field.remove();}
-        else draw();
-      }catch(error){notice(error.message,true);select.disabled=false;}
+        const eyebrow=$('#draft-eyebrow');
+        const box=state.boxes.find(b=>b.number===number);
+        if(eyebrow&&box)eyebrow.textContent=`${box.category} · Box ${box.number}`;
+      });
     };
+    // Saved on blur rather than per keystroke: this is a sentence, not a live-edited field, and it
+    // must not race the 700ms entry autosave.
+    if(note)note.onchange=()=>saveMeta({context:note.value.trim().slice(0,1000)},note,()=>notice('Note saved. It will steer the next recognition.'));
   }
   function drawAnalyzing(){
     const source=draft.photos.length?(draft.transcript?'your photos and description':'your photos'):'what you said';
-    editor.innerHTML=`${draft.photos.length?`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div>`:''}<p class="analyzing" aria-live="polite">Recognizing items from ${source}…</p><p class="hint">This keeps running if you close the page — the result is saved to this draft. Editing is paused until it lands, so nothing overwrites it.</p>${filingField()}<div class="actions">${draft.box?`<a class="button" href="/box/${draft.box}">Open Box ${draft.box}</a>`:''}</div>`;
+    editor.innerHTML=`${draft.photos.length?`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div>`:''}<p class="analyzing" aria-live="polite">Recognizing items from ${source}…</p><p class="hint">This keeps running if you close the page — the result is saved to this draft. Entry editing is paused until it lands, but you can still file it and leave a note.</p>${filingField()}<div class="actions">${draft.box?`<a class="button" href="/box/${draft.box}">Open Box ${draft.box}</a>`:''}</div>`;
     wireFiling();
     clearTimeout(poll);
     poll=setTimeout(async()=>{
-      try{const filed=draft.box;draft=await api(`/api/drafts/${draft.id}/`,undefined,'GET');if(!draft.box&&filed)draft.box=filed;rows=draft.entries.map(r=>({...r,selected:false}));dirty=false;draw();}
+      try{const filed=draft.box,noted=draft.context;draft=await api(`/api/drafts/${draft.id}/`,undefined,'GET');if(!draft.box&&filed)draft.box=filed;if(!draft.context&&noted)draft.context=noted;rows=draft.entries.map(r=>({...r,selected:false}));dirty=false;draw();}
       // Keep retrying a flaky connection, but a draft that is gone or no longer ours will never
       // come back -- polling it every 3s for the life of an abandoned tab helps nobody.
       catch(error){if(error.status>=400&&error.status<500){notice('This draft is no longer available. Reload the page.',true);return;}drawAnalyzing();}
@@ -451,8 +463,10 @@ if(state.draft) {
     };
     queue=queue.catch(()=>{}).then(operation);return queue;
   }
-  // Selects are deliberately absent here: the box picker must stay usable while recognition runs.
-  function disable(on){busy=on;editor.querySelectorAll('button,input,textarea').forEach(e=>e.disabled=on);}
+  // Entry fields lock during a run so nothing bumps revision under the result. The filing controls
+  // are exempt on purpose: choosing a box and leaving a note are the two things the owner is meant
+  // to do *while* waiting, and both save through /meta/, which does not touch revision.
+  function disable(on){busy=on;editor.querySelectorAll('button,input,textarea').forEach(e=>{if(!e.closest('.filing'))e.disabled=on;});}
   // The model returns nothing until it has finished reading every photo, so show the wait next to
   // the button that started it. Silence for 30-60 seconds is what reads as a broken server.
   let ticker;

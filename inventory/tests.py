@@ -559,7 +559,7 @@ class QuickSnapTests(TestCase):
             # The whole point of the flow: the box is picked *during* the run. Assigning must not bump
             # revision, or the result fails its own revision guard and is silently thrown away.
             def file_it_mid_run(messages,validate):
-                self.assertEqual(post(f'/api/drafts/{pk}/box/',{'box':4}).status_code,200)
+                self.assertEqual(post(f'/api/drafts/{pk}/meta/',{'box':4}).status_code,200)
                 return [{'name':'Snapped item','description':'','aliases':''}]
             with patch('inventory.ai.complete',side_effect=file_it_mid_run):
                 analyzed=self.client.post(f'/api/drafts/{pk}/analyze/',json.dumps({'revision':0}),content_type='application/json')
@@ -568,9 +568,54 @@ class QuickSnapTests(TestCase):
             self.assertEqual(analyzed.json()['box'],4)
             draft=Draft.objects.get(pk=pk)
             self.assertEqual(draft.box.number,4)
+            # A mis-tap must be correctable in place, not by saving and moving items afterwards.
+            Box.objects.create(number=5,category='Other shelf')
+            settled=draft.revision
+            refiled=post(f'/api/drafts/{pk}/meta/',{'box':5})
+            self.assertEqual(refiled.status_code,200)
+            self.assertEqual(refiled.json()['box'],5)
+            draft.refresh_from_db()
+            self.assertEqual(draft.box.number,5)
+            self.assertEqual(draft.revision,settled,'refiling must not bump revision either')
+            self.assertEqual(post(f'/api/drafts/{pk}/meta/',{'box':4}).json()['box'],4)
+            draft.refresh_from_db()
             with self.captureOnCommitCallbacks(execute=True):
                 self.assertEqual(post(f'/api/drafts/{pk}/save/',{'revision':draft.revision}).status_code,200)
             self.assertEqual(Item.objects.get(name='Snapped item').box.number,4)
+
+    def test_a_note_can_be_added_while_the_first_pass_runs_and_steers_the_next(self):
+        # Snap starts recognition before the owner can type anything, so the note has to be
+        # acceptable during the run -- otherwise the only way to give context is a full retry.
+        buckets.clear()
+        owner=get_user_model().objects.create_user('snap-noter',is_staff=True)
+        Box.objects.create(number=6,category='Bench')
+        self.client.force_login(owner)
+        with tempfile.TemporaryDirectory() as directory, override_settings(PHOTO_ROOT=Path(directory)):
+            stream=io.BytesIO();Image.new('RGB',(64,64),'white').save(stream,format='PNG')
+            pk=self.client.post('/api/drafts/new/',{'photos':SimpleUploadedFile('p.png',stream.getvalue())}).json()['id']
+            def post(path,data):
+                return self.client.post(path,json.dumps(data),content_type='application/json')
+            sent={}
+            def capture(messages,validate):
+                sent['content']=messages[0]['content']
+                return [{'name':'Wrong guess','description':'','aliases':''}]
+            # First pass runs with no note, and the owner files and writes one while it works.
+            def note_it_mid_run(messages,validate):
+                self.assertEqual(post(f'/api/drafts/{pk}/meta/',{'box':6,'context':'these are rivets'}).status_code,200)
+                return capture(messages,validate)
+            with patch('inventory.ai.complete',side_effect=note_it_mid_run):
+                self.assertEqual(post(f'/api/drafts/{pk}/analyze/',{'revision':0}).status_code,200)
+            self.assertFalse(any('owner_note' in p['text'] for p in sent['content'][1:] if p['type']=='text'),
+                             'the running pass cannot retroactively use a note written after it started')
+            draft=Draft.objects.get(pk=pk)
+            self.assertEqual(draft.context,'these are rivets')
+            self.assertEqual(draft.box.number,6)
+            # The retry it enables needs no typing: the note is already on the draft.
+            with patch('inventory.ai.complete',side_effect=capture):
+                self.assertEqual(post(f'/api/drafts/{pk}/analyze/',{'revision':draft.revision,'replace':True}).status_code,200)
+            note=[json.loads(p['text'])['owner_note'] for p in sent['content'][1:]
+                  if p['type']=='text' and 'owner_note' in p['text']]
+            self.assertEqual(note,['these are rivets'])
 
     def test_unfiled_draft_survives_listing_and_its_own_page(self):
         # A null box reaches the home draft list and the draft page; neither may 500 on it.

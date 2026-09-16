@@ -129,11 +129,28 @@ await page.waitForURL('**/drafts/*analyze=1');
 await page.getByText('Recognizing…').first().waitFor();
 assert.equal(await page.getByRole('button',{name:'Choose a box to save'}).count(),1,'an unfiled draft cannot be saved yet');
 // Pick the box while the model is still reading, which is the point of the flow.
-await page.getByLabel('Which box does this go in?').selectOption('3');
+// A mis-tap: file it into the wrong box, then correct it in place. The select must stay on screen.
+await page.getByLabel('Which box does this go in?').selectOption('12');
+await page.getByRole('status').filter({hasText:'Filed under Box 12'}).waitFor();
+assert.equal(await page.locator('#f-draft-box').count(),1,'filing must stay correctable, not vanish once set');
+assert.equal(await page.locator('#f-draft-box').isDisabled(),false,'and must stay usable while the model reads');
+await page.locator('#f-draft-box').selectOption('3');
 await page.getByRole('status').filter({hasText:'Filed under Box 3'}).waitFor();
+// Context can be given during the wait, which is what makes a retry cheap instead of retyping.
+await page.locator('#f-draft-note').fill('these are rivets');
+await page.locator('#f-draft-note').blur();   // saved on blur, as a real user leaving the field would
+await page.getByRole('status').filter({hasText:'Note saved'}).waitFor();
 release();
 await page.getByLabel('Item or assortment name',{exact:true}).first().waitFor({timeout:15000});
 assert.equal(await page.getByLabel('Item or assortment name',{exact:true}).first().inputValue(),'Snapped thing','filing mid-run must not discard the recognition');
+assert.equal(snapContext,undefined,'the first pass started before any note existed');
+// Once the result lands the panel redraws, and the filing control reads as settled rather than asking.
+assert.equal(await page.getByLabel('Filed in').count(),1,'a filed draft shows where it is going');
+assert.equal(await page.locator('#f-draft-box').inputValue(),'3');
+// The note written during the wait is already on the draft, so the retry needs no typing.
+await page.locator('#analyze').click();
+assert.equal(await page.getByLabel('What was wrong? (optional)').inputValue(),'these are rivets','a note left during the run must arm the retry');
+await page.getByRole('button',{name:'Cancel'}).click();
 await page.getByRole('button',{name:'Save to Box 3'}).click();
 await page.waitForURL('**/box/3');
 await page.getByRole('heading',{name:'Snapped thing',exact:true}).waitFor();

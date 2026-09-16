@@ -43,15 +43,26 @@ def listing(request):
 
 
 @endpoint(['POST'], owner=True)
-def assign(request, pk):
+def meta(request, pk):
+    # The fields the owner may change *while recognition is running*: which box it gets filed in and
+    # the note that steers the model. Both are written with .update(), which leaves revision alone --
+    # the analysis writes its result under the revision its run began with, so a bump here would make
+    # that write match nothing and the recognition would be discarded. See handoff.md's invariants.
     draft = owned(request, pk)
     drafts.open_draft(draft)
-    box = get_object_or_404(Box, number=integer(body(request), 'box'), retired=False)
-    # Deliberately an .update() that leaves revision alone: choosing a box while recognition is in
-    # flight is the normal path here, and a bump would make the result fail its own revision guard
-    # and be discarded.
-    Draft.objects.filter(pk=draft.pk, owner=request.user, state='open').update(box=box)
-    return JsonResponse({'box': box.number})
+    payload = body(request)
+    fields = {}
+    if 'box' in payload:
+        fields['box'] = get_object_or_404(Box, number=integer(payload, 'box'), retired=False)
+    if 'context' in payload:
+        fields['context'] = string(payload, 'context', 1000)
+    if not fields:
+        raise Invalid('Nothing to change')
+    Draft.objects.filter(pk=draft.pk, owner=request.user, state='open').update(**fields)
+    draft.refresh_from_db()
+    # Full draft back, not just the changed field: filing into a different box changes which entries
+    # count as duplicates, and the caller has no other way to learn that.
+    return JsonResponse(data(draft))
 
 
 @endpoint(['POST'], owner=True)
