@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404
 from django.middleware.csrf import get_token
 from django.utils import timezone
 from .access import endpoint, body, limited
-from .models import Box, Item, Flag
+from .models import Box, Item, Flag, touch_boxes
 from .validation import Invalid, integer, string, entries
 
 
@@ -72,7 +72,7 @@ def box_create(request):
             box.location = string(data, 'location', 120) if 'location' in data else box.location
             box.retired = False
             box.revision += 1
-            box.save(update_fields=['category', 'location', 'retired', 'revision'])
+            box.save(update_fields=['category', 'location', 'retired', 'revision', 'updated_at'])
             return JsonResponse({'number': box.number, 'restored': True})
         box = Box.objects.create(number=number, category=category, location=string(data, 'location', 120))
     return JsonResponse({'number': box.number, 'restored': False}, status=201)
@@ -106,6 +106,7 @@ def item_create(request):
     with transaction.atomic():
         box = get_object_or_404(Box, number=integer(data, 'box'), retired=False)
         item = Item.objects.create(box=box, **fields)
+        touch_boxes(box.pk)
     return JsonResponse(item_data(item), status=201)
 
 
@@ -114,16 +115,19 @@ def item_edit(request, pk):
     data = body(request)
     with transaction.atomic():
         item = get_object_or_404(Item.objects.select_related('box'), pk=pk)
+        old_box_id = item.box_id
         if integer(data, 'revision') != item.revision:
             return JsonResponse({'error': 'Item changed; reload'}, status=409)
         if data.get('delete') is True:
             item.delete()
+            touch_boxes(old_box_id)
             return JsonResponse({'ok': True})
         item.box = get_object_or_404(Box, number=integer(data, 'box'), retired=False)
         for key, value in entries([data])[0].items():
             setattr(item, key, value)
         item.revision += 1
         item.save()
+        touch_boxes(old_box_id, item.box_id)
     return JsonResponse(item_data(item))
 
 
@@ -157,12 +161,15 @@ def item_bulk(request):
             return JsonResponse({'error': 'Some of those items no longer exist; reload'}, status=409)
         if any(item.revision != wanted[item.pk] for item in items):
             return JsonResponse({'error': 'Item changed; reload'}, status=409)
+        box_ids = {item.box_id for item in items}
         if action == 'delete':
             # Queryset delete is one statement, and the collector still applies Flag.item SET_NULL.
             Item.objects.filter(pk__in=wanted).delete()
+            touch_boxes(*box_ids)
             return JsonResponse({'deleted': len(items)})
         box = get_object_or_404(Box, number=integer(data, 'box'), retired=False)
         Item.objects.filter(pk__in=wanted).update(box=box, revision=F('revision') + 1)
+        touch_boxes(*box_ids, box.pk)
     return JsonResponse({'moved': len(items), 'box': box.number})
 
 

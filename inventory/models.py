@@ -15,9 +15,14 @@ class Box(models.Model):
     location = models.CharField(max_length=120, blank=True, default="")
     retired = models.BooleanField(default=False)
     revision = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
     class Meta:
         ordering = ['number']
         constraints = [models.CheckConstraint(condition=models.Q(number__gt=0), name='positive_box_number')]
+
+
+def touch_boxes(*ids):
+    Box.objects.filter(pk__in=ids).update(updated_at=timezone.now())
 
 
 class Draft(models.Model):

@@ -15,9 +15,14 @@ class CoreTests(TestCase):
     def test_access_and_stale_edits(self):
         self.assertEqual(self.post('/api/items/create/', {}).status_code, 403)
         self.client.force_login(self.owner)
+        old = timezone.now() - timedelta(days=1)
+        Box.objects.filter(pk=self.box.pk).update(updated_at=old)
         data = {'name': 'M3 assortment', 'description': '16 mm screws', 'box': 12}
         created = self.post('/api/items/create/', data)
         self.assertEqual(created.status_code, 201)
+        self.box.refresh_from_db()
+        self.assertGreater(self.box.updated_at, old)
+        self.assertEqual(self.client.get('/').context['last_change'], self.box.updated_at)
         item_id = created.json()['id']
         data['revision'] = 0
         self.assertEqual(self.post(f'/api/items/{item_id}/edit/', data).status_code, 200)
@@ -111,12 +116,15 @@ class BulkItemTests(TestCase):
 
     def test_bulk_delete_empties_a_box_so_it_can_be_archived(self):
         # The point of the feature: box_edit refuses retirement while items remain.
+        old = timezone.now() - timedelta(days=1)
+        Box.objects.filter(pk=self.box.pk).update(updated_at=old)
         response = self.client.post(f'/api/boxes/{self.box.number}/edit/',
             json.dumps({'revision': self.box.revision, 'category': 'Parts', 'retired': True}), content_type='application/json')
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.post({'action': 'delete', 'items': self.selection()}).status_code, 200)
         self.assertEqual(Item.objects.filter(box=self.box).count(), 0)
         self.box.refresh_from_db()
+        self.assertGreater(self.box.updated_at, old)
         response = self.client.post(f'/api/boxes/{self.box.number}/edit/',
             json.dumps({'revision': self.box.revision, 'category': 'Parts', 'retired': True}), content_type='application/json')
         self.assertEqual(response.status_code, 200, 'an emptied box must now be archivable')

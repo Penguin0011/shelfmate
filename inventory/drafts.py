@@ -7,7 +7,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from PIL import Image, ImageOps, UnidentifiedImageError
-from .models import Draft, Item
+from .models import Draft, Item, touch_boxes
 from .validation import Invalid, entries
 
 # Optional so the app still boots if the wheel is not installed yet; a deploy that copies code
@@ -129,6 +129,7 @@ def save(draft_id, owner, revision):
         if not proposed:
             raise Invalid('Add at least one item before saving')
         draft.receipt = [Item.objects.create(box=draft.box, draft=draft, draft_row=n, **row).pk for n, row in enumerate(proposed)]
+        touch_boxes(draft.box_id)
         draft.state = 'saved'
         draft.entries = []
         draft.analysis_token = None

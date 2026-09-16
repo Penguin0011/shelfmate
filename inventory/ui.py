@@ -14,6 +14,7 @@ def page(request, number=None, draft_id=None, screen='home'):
     if (screen in ('inbox', 'draft') or draft_id) and not owner:
         return redirect('/?login=1')
     boxes = list(Box.objects.filter(retired=False).annotate(count=Count('items')).order_by('number'))
+    last_change = Box.objects.order_by('-updated_at').values_list('updated_at', flat=True).first() if screen == 'home' and number is None and draft_id is None else None
     # The index groups boxes under their location; blank locations sort last under one heading.
     ordered = sorted(boxes, key=lambda b: (b.location.casefold() or '￿', b.number))
     groups = [{'location': rows[0].location or 'Unplaced', 'boxes': rows}
@@ -34,7 +35,8 @@ def page(request, number=None, draft_id=None, screen='home'):
     return render(request, 'inventory/page.html', {
         'screen': screen, 'owner': owner, 'boxes': boxes, 'groups': groups, 'box': box, 'items': items,
         'archived_boxes': Box.objects.filter(retired=True) if owner else [],
-        'total': sum(b.count for b in boxes), 'open_count': flags.filter(status='open').count(),
+        'total': sum(b.count for b in boxes), 'last_change': last_change,
+        'open_count': flags.filter(status='open').count(),
         'open_flags': flags.filter(status='open') if screen == 'inbox' else [],
         'history': flags.exclude(status='open') if screen == 'inbox' else [],
         'bootstrap': bootstrap,
