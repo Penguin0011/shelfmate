@@ -221,25 +221,33 @@ if(document.querySelector('.pick-item')) {
   selectionChanged();
 }
 if(new URLSearchParams(location.search).has('login'))loginForm();
-// Search stays on the index; ordinary search remains available while AI is busy.
+// Search stays on the index and always asks the AI first. The AI endpoint answers 429/502/503 with
+// "use local search" when it is rate-limited, unconfigured or unreachable, so fall back to the name
+// search rather than leaving the box with nothing to show.
 let searchVersion=0;
-async function runSearch(ai=false) {
+async function runSearch() {
   const q=$('#query').value.trim();if(!q){$('#query').focus();return;}
   const version=++searchVersion;
-  $('#search-results').hidden=false;$('#result-list').textContent=ai?'Looking through the saved descriptions…':'Searching…';
-  $('#results-title').textContent=ai?'AI matches':'Search results';
-  $('#ask-ai').disabled=ai;
+  $('#search-results').hidden=false;$('#result-list').textContent='Looking through the saved descriptions…';
+  $('#results-title').textContent='AI matches';
   try {
-    const result=ai?await api('/api/search/ai/',{question:q}):await api(`/api/search/?q=${encodeURIComponent(q)}`,undefined,'GET');
+    let result, ai=true;
+    try { result=await api('/api/search/ai/',{question:q}); }
+    catch(unavailable) {
+      if(version!==searchVersion)return;
+      ai=false;
+      $('#result-list').textContent='AI is unavailable — searching names instead…';
+      result=await api(`/api/search/?q=${encodeURIComponent(q)}`,undefined,'GET');
+    }
     if(version!==searchVersion)return;
+    $('#results-title').textContent=ai?'AI matches':'Name matches';
     const matches=result.matches||result.items;
     $('#result-list').innerHTML=matches.length?matches.map((i,n)=>`<a class="result-row" href="/box/${i.box}#item-${i.id}"><span class="row-number" aria-hidden="true">${String(n+1).padStart(2,'0')}</span><div class="result-copy">${ai?'<span class="match-label">Possible match</span>':''}<h3>${esc(i.name)}</h3><span class="box-number">${i.location?`${esc(i.location)} · `:''}Box ${i.box} / ${esc(i.category)}</span><p>${esc(ai?i.explanation:i.description)}</p></div></a>`).join(''):'<div class="empty"><h3>No matching entries.</h3><p>Try a different name, or ask the owner to check.</p></div>';
     history.replaceState(null,'',`/?q=${encodeURIComponent(q)}`);
   } catch(error){if(version===searchVersion){$('#result-list').innerHTML='';const p=document.createElement('p');p.className='pad';p.textContent=error.message;$('#result-list').append(p);}}
-  finally{if(ai)$('#ask-ai').disabled=false;}
 }
 if($('#search-form')) {
-  $('#search-form').addEventListener('submit',e=>{e.preventDefault();runSearch();});$('#ask-ai').onclick=()=>runSearch(true);
+  $('#search-form').addEventListener('submit',e=>{e.preventDefault();runSearch();});
   $('#clear-search').onclick=()=>{searchVersion++;$('#search-results').hidden=true;$('#query').value='';history.replaceState(null,'','/');$('#query').focus();};
   const q=new URLSearchParams(location.search).get('q');if(q){$('#query').value=q;runSearch();}
   if(state.owner)api('/api/drafts/',undefined,'GET').then(r=>{if(r.drafts.length){$('#draft-list').hidden=false;$('#draft-links').innerHTML=r.drafts.map(d=>`<a class="box-row" href="/drafts/${d.id}"><span class="row-number" aria-hidden="true">${String(d.box).padStart(2,'0')}</span><span class="box-copy"><span class="box-category">Continue adding</span><span class="box-sub">Box ${d.box} · unfinished draft</span></span></a>`).join('');}}).catch(e=>notice(e.message,true));
@@ -248,16 +256,23 @@ if($('#search-form')) {
 // Keep revisioned draft writes in order. A lost response leaves edits visible for recovery.
 if(state.draft) {
   let draft=state.draft, dirty=false, timer, queue=Promise.resolve(), busy=false, epoch=0;
-  let rows=draft.entries.map(r=>({...r,selected:false}));
+  let rows=draft.entries.map(r=>({...r,selected:true}));
   const editor=$('#draft-editor');
   function status(text,error=false){const n=$('#save-status');if(n){n.textContent=text;n.style.color=error?'var(--rust)':'';}}
   function values(){return rows.map(({selected,...r})=>r);}
   function draw(){
     if(draft.state!=='open'||new Date(draft.expires_at)<=new Date()){editor.innerHTML=`<div class="empty"><h3>This draft is ${esc(draft.state==='open'?'expired':draft.state)}.</h3><p>Return to the box to see its saved contents.</p><a class="button" href="/box/${draft.box}">Open box</a></div>`;return;}
-    editor.innerHTML=`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div><button id="analyze" class="green wide">${rows.length?'Recognize again':'Recognize items from photos'}</button><p id="analyze-progress" class="analyzing" hidden aria-live="polite"></p><p class="hint">You can also enter items manually. Review every suggestion before saving.</p><div id="draft-rows">${rows.map((r,n)=>`<section class="draft-row" data-row="${n}"><div class="draft-row-top"><label class="check-label"><input type="checkbox" data-select="${n}" ${r.selected?'checked':''}>Select to combine</label><button type="button" class="text-button danger" data-remove="${n}">Remove</button></div><div class="field"><label for="name-${n}">Item or assortment name</label><input id="name-${n}" data-key="name" maxlength="200" value="${esc(r.name)}" required></div><div class="field"><label for="description-${n}">Description</label><textarea id="description-${n}" data-key="description" maxlength="2000">${esc(r.description)}</textarea></div><div class="field"><label for="aliases-${n}">Other names</label><input id="aliases-${n}" data-key="aliases" maxlength="1000" value="${esc(r.aliases)}"></div>${draft.duplicates.includes(n)?'<p class="duplicate">A matching name is already in this box. Review before adding.</p>':''}</section>`).join('')}</div><div class="actions wrap"><button id="add-row">+ Add an entry</button><button id="combine">Combine selected</button></div><div class="save-bar"><p id="save-status" class="save-status" role="status">${dirty?'Unsaved changes':'Draft saved'}</p><div class="actions"><button id="save-draft" class="primary">Save to Box ${draft.box}</button><button id="cancel-draft">Discard</button></div><p class="hint">Saved entries stay in your inventory. Uploaded photos are deleted locally.</p></div>`;
-    $('#analyze').onclick=analyze;$('#add-row').onclick=()=>{rows.push({name:'',description:'',aliases:'',selected:false});dirty=true;epoch++;draw();$(`#name-${rows.length-1}`).focus();};
-    $('#combine').onclick=()=>{const selected=rows.filter(r=>r.selected);if(selected.length<2){status('Select at least two entries to combine.',true);return;}const first=rows.findIndex(r=>r.selected);const combined={name:selected.map(r=>r.name).join(' + ').slice(0,200),description:selected.map(r=>r.description).filter(Boolean).join('\n').slice(0,2000),aliases:selected.map(r=>r.aliases).filter(Boolean).join(', ').slice(0,1000),selected:false};rows=rows.filter((r,n)=>!r.selected||n===first).map(r=>r.selected?combined:r);changed();draw();};
+    editor.innerHTML=`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div><button id="analyze" class="green wide">${rows.length?'Recognize again':'Recognize items from photos'}</button><p id="analyze-progress" class="analyzing" hidden aria-live="polite"></p><p class="hint">You can also enter items manually. Review every suggestion before saving.</p><div id="draft-rows">${rows.map((r,n)=>`<section class="draft-row" data-row="${n}"><div class="draft-row-top"><label class="check-label"><input type="checkbox" data-select="${n}" ${r.selected?'checked':''}>Keep</label><button type="button" class="text-button danger" data-remove="${n}">Remove</button></div><div class="field"><label for="name-${n}">Item or assortment name</label><input id="name-${n}" data-key="name" maxlength="200" value="${esc(r.name)}" required></div><div class="field"><label for="description-${n}">Description</label><textarea id="description-${n}" data-key="description" maxlength="2000">${esc(r.description)}</textarea></div><div class="field"><label for="aliases-${n}">Other names</label><input id="aliases-${n}" data-key="aliases" maxlength="1000" value="${esc(r.aliases)}"></div>${draft.duplicates.includes(n)?'<p class="duplicate">A matching name is already in this box. Review before adding.</p>':''}</section>`).join('')}</div><div class="actions wrap"><button id="add-row">+ Add an entry</button><button id="combine">Merge kept entries</button></div><div class="save-bar"><div class="keep-bar"><label class="check-label"><input type="checkbox" id="keep-all">Select all</label><span id="keep-count" aria-live="polite"></span></div><p id="save-status" class="save-status" role="status">${dirty?'Unsaved changes':'Draft saved'}</p><div class="actions"><button id="save-draft" class="primary">Save to Box ${draft.box}</button><button id="cancel-draft">Discard</button></div><p class="hint">Only kept entries are saved. Uploaded photos are deleted locally.</p></div>`;
+    $('#analyze').onclick=analyze;$('#add-row').onclick=()=>{rows.push({name:'',description:'',aliases:'',selected:true});dirty=true;epoch++;draw();$(`#name-${rows.length-1}`).focus();};
+    $('#combine').onclick=()=>{const selected=rows.filter(r=>r.selected);if(selected.length<2){status('Keep at least two entries to merge them.',true);return;}if(selected.length>2&&!confirm(`Merge ${selected.length} kept entries into a single item? This cannot be undone.`))return;const first=rows.findIndex(r=>r.selected);const combined={name:selected.map(r=>r.name).join(' + ').slice(0,200),description:selected.map(r=>r.description).filter(Boolean).join('\n').slice(0,2000),aliases:selected.map(r=>r.aliases).filter(Boolean).join(', ').slice(0,1000),selected:true};rows=rows.filter((r,n)=>!r.selected||n===first).map(r=>r.selected?combined:r);changed();draw();};
     $('#save-draft').onclick=saveFinal;$('#cancel-draft').onclick=cancel;
+    $('#keep-all').onclick=e=>{const on=e.target.checked;rows.forEach(r=>r.selected=on);draw();};
+    keepStatus();
+  }
+  function keepStatus(){
+    const kept=rows.filter(r=>r.selected).length, label=$('#keep-count'), all=$('#keep-all');
+    if(label)label.textContent=`${kept} of ${rows.length} kept`;
+    if(all){all.checked=kept>0&&kept===rows.length;all.indeterminate=kept>0&&kept<rows.length;}
   }
   function changed(){dirty=true;epoch++;clearTimeout(timer);status('Unsaved changes');timer=setTimeout(()=>persist().catch(e=>status(e.message,true)),700);}
   async function persist(){
@@ -295,7 +310,7 @@ if(state.draft) {
     try{
       if(dirty)await persist();
       draft=await api(`/api/drafts/${draft.id}/analyze/`,{revision:draft.revision,replace:rows.length>0});
-      rows=draft.entries.map(r=>({...r,selected:false}));
+      rows=draft.entries.map(r=>({...r,selected:true}));
       dirty=false;
       clearInterval(ticker);
       draw();
@@ -307,10 +322,17 @@ if(state.draft) {
       status(e.message,true);
     }finally{clearInterval(ticker);disable(false);}
   }
-  async function saveFinal(){if(busy)return;if(!rows.length){status('Add at least one entry.',true);return;}disable(true);try{await persist();await api(`/api/drafts/${draft.id}/save/`,{revision:draft.revision});dirty=false;success('Items added to the box.',`/box/${draft.box}`);}catch(e){status(e.message,true);}finally{disable(false);}}
+  async function saveFinal(){
+    if(busy)return;
+    if(!rows.length){status('Add at least one entry.',true);return;}
+    const kept=rows.filter(r=>r.selected), dropped=rows.length-kept.length;
+    if(!kept.length){status('Keep at least one entry to save.',true);return;}
+    if(dropped&&!confirm(`Save ${kept.length} of ${rows.length} entries?\n\nThe ${dropped} unkept ${dropped===1?'entry':'entries'} will be discarded.`))return;
+    if(dropped){rows=kept;dirty=true;epoch++;draw();}
+    disable(true);try{await persist();await api(`/api/drafts/${draft.id}/save/`,{revision:draft.revision});dirty=false;success('Items added to the box.',`/box/${draft.box}`);}catch(e){status(e.message,true);}finally{disable(false);}}
   async function cancel(){if(busy||!confirm('Discard this draft and delete its uploaded photos?'))return;clearTimeout(timer);disable(true);try{await queue.catch(()=>{});await api(`/api/drafts/${draft.id}/cancel/`,{});dirty=false;success('Draft discarded.',`/box/${draft.box}`);}catch(e){status(e.message,true);}finally{disable(false);}}
   editor.addEventListener('input',e=>{const key=e.target.dataset.key;if(!key)return;const n=Number(e.target.closest('[data-row]').dataset.row);rows[n][key]=e.target.value;changed();});
-  editor.addEventListener('change',e=>{if(e.target.dataset.select!==undefined)rows[Number(e.target.dataset.select)].selected=e.target.checked;});
+  editor.addEventListener('change',e=>{if(e.target.dataset.select!==undefined){rows[Number(e.target.dataset.select)].selected=e.target.checked;keepStatus();}});
   editor.addEventListener('click',e=>{const b=e.target.closest('[data-remove]');if(b&&!busy){rows.splice(Number(b.dataset.remove),1);changed();draw();}});
   window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
   draw();
