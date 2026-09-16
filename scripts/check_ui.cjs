@@ -81,5 +81,23 @@ assert.equal(spoken.restarts,2,'a pause for breath must restart the session, not
 assert.equal(spoken.label,'Start talking','Stop must return the button to its resting state');
 await page.getByRole('button',{name:'Cancel'}).click();
 await page.goto(baseURL);await page.locator('#search-mic').waitFor({state:'visible'});
-assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);console.log('UI flows passed: search, household flag, login, manual entry/move, photo review/autosave/save-what-you-see, dictation across a pause, flag resolution, archive/restore and number reuse.');} finally {if(browser)await browser.close();server.kill();await new Promise(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',resolve);});fs.rmSync(directory,{recursive:true,force:true});}
+// Reopening a draft whose recognition is still running: it must hold still rather than offer an
+// editor, because an edit lands a revision bump that would discard the result when it arrives.
+const setLock=sql=>{const r=spawnSync(python,['manage.py','shell','-c',sql],{env,stdio:'pipe'});if(r.status!==0)throw Error('lock setup failed: '+r.stderr);};
+await page.goto(baseURL+'/box/3');
+await page.getByLabel('Box actions').click();await page.getByRole('button',{name:'Add items from photos'}).click();await page.getByLabel('Choose photos or take a photo').setInputFiles(path.join(directory,'photo.png'));await page.getByRole('button',{name:'Upload & review'}).click();await page.waitForURL('**/drafts/*');
+setLock("from inventory.models import Draft\nfrom django.utils import timezone\nfrom datetime import timedelta\nDraft.objects.filter(state='open').update(analyzing_until=timezone.now()+timedelta(seconds=60))");
+await page.reload();
+await page.getByText('Recognizing items from').waitFor();
+assert.equal(await page.getByLabel('Item or assortment name',{exact:true}).count(),0,'a running draft must not offer editable rows');
+assert.equal(await page.getByRole('button',{name:/Recognize/}).count(),0,'a running draft must not offer to start a second run');
+await page.goto(baseURL);
+await page.getByText('Recognizing…').waitFor();   // the home draft list says which are still working
+await page.goBack();await page.getByText('Recognizing items from').waitFor();
+// When the result lands, the open page must pick it up on its own.
+setLock("from inventory.models import Draft\nDraft.objects.filter(state='open').update(analyzing_until=None,entries=[{'name':'Recognized later','description':'arrived while away','aliases':''}])");
+await page.getByLabel('Item or assortment name',{exact:true}).waitFor({timeout:15000});
+assert.equal(await page.getByLabel('Item or assortment name',{exact:true}).inputValue(),'Recognized later','the poll must redraw with the result that landed');
+await page.getByRole('button',{name:'Discard'}).click();await page.waitForURL('**/box/3');
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);console.log('UI flows passed: search, household flag, login, manual entry/move, photo review/autosave/save-what-you-see, dictation across a pause, flag resolution, archive/restore and number reuse, draft held read-only while recognizing.');} finally {if(browser)await browser.close();server.kill();await new Promise(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',resolve);});fs.rmSync(directory,{recursive:true,force:true});}
 })();

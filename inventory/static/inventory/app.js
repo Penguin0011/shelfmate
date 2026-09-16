@@ -344,17 +344,31 @@ if($('#search-form')) {
     onDone:failure=>{if(failure)notice(failure,true);else{$('#notice').hidden=true;if($('#query').value.trim())runSearch();}},
   });
   const q=new URLSearchParams(location.search).get('q');if(q){$('#query').value=q;runSearch();}
-  if(state.owner)api('/api/drafts/',undefined,'GET').then(r=>{if(r.drafts.length){$('#draft-list').hidden=false;$('#draft-links').innerHTML=r.drafts.map(d=>`<a class="box-row" href="/drafts/${d.id}"><span class="row-number" aria-hidden="true">${String(d.box).padStart(2,'0')}</span><span class="box-copy"><span class="box-category">Continue adding</span><span class="box-sub">Box ${d.box} · unfinished draft</span></span></a>`).join('');}}).catch(e=>notice(e.message,true));
+  if(state.owner)api('/api/drafts/',undefined,'GET').then(r=>{if(r.drafts.length){$('#draft-list').hidden=false;$('#draft-links').innerHTML=r.drafts.map(d=>`<a class="box-row" href="/drafts/${d.id}"><span class="row-number" aria-hidden="true">${String(d.box).padStart(2,'0')}</span><span class="box-copy"><span class="box-category">${d.analyzing?'Recognizing…':'Continue adding'}</span><span class="box-sub">Box ${d.box} · ${d.analyzing?'AI is still working':'unfinished draft'}</span></span></a>`).join('');}}).catch(e=>notice(e.message,true));
 }
 
 // Keep revisioned draft writes in order. A lost response leaves edits visible for recovery.
 if(state.draft) {
-  let draft=state.draft, dirty=false, timer, queue=Promise.resolve(), busy=false, epoch=0;
+  let draft=state.draft, dirty=false, timer, queue=Promise.resolve(), busy=false, epoch=0, poll;
   let rows=draft.entries.map(r=>({...r,selected:false}));
   const editor=$('#draft-editor');
   function status(text,error=false){const n=$('#save-status');if(n){n.textContent=text;n.style.color=error?'var(--rust)':'';}}
   function values(){return rows.map(({selected,...r})=>r);}
+  // Recognition keeps running on the server after you leave, and its result is written under the
+  // revision the run started with -- so an edit made while it is in flight would discard it. Reopen
+  // a running draft and it stays read-only until the result lands, then redraws with it.
+  function drawAnalyzing(){
+    const source=draft.photos.length?(draft.transcript?'your photos and description':'your photos'):'what you said';
+    editor.innerHTML=`${draft.photos.length?`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div>`:''}<p class="analyzing" aria-live="polite">Recognizing items from ${source}…</p><p class="hint">This keeps running if you close the page — the result is saved to this draft. Editing is paused until it lands, so nothing overwrites it.</p><div class="actions"><a class="button" href="/box/${draft.box}">Open Box ${draft.box}</a></div>`;
+    clearTimeout(poll);
+    poll=setTimeout(async()=>{
+      try{draft=await api(`/api/drafts/${draft.id}/`,undefined,'GET');rows=draft.entries.map(r=>({...r,selected:false}));dirty=false;draw();}
+      catch{drawAnalyzing();}
+    },3000);
+  }
   function draw(){
+    clearTimeout(poll);
+    if(draft.analyzing&&!busy)return drawAnalyzing();
     if(draft.state!=='open'||new Date(draft.expires_at)<=new Date()){editor.innerHTML=`<div class="empty"><h3>This draft is ${esc(draft.state==='open'?'expired':draft.state)}.</h3><p>Return to the box to see its saved contents.</p><a class="button" href="/box/${draft.box}">Open box</a></div>`;return;}
     // ponytail: the transcript is read-only here -- correct the entries it produced instead. Make it
     // editable only if re-recognizing from a fixed-up ramble turns out to be worth a round trip.

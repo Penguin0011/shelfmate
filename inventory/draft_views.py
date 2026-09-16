@@ -13,7 +13,10 @@ def owned(request, pk):
 
 def data(draft):
     existing = {name.strip().casefold() for name in draft.box.items.values_list('name', flat=True)}
-    return {'id': str(draft.pk), 'box': draft.box.number, 'state': draft.state, 'revision': draft.revision, 'entries': draft.entries, 'receipt': draft.receipt, 'transcript': draft.transcript, 'expires_at': draft.expires_at, 'photos': [f'/api/drafts/{draft.pk}/photos/{n}/' for n in range(len(draft.files))] if draft.state == 'open' and draft.expires_at > timezone.now() else [], 'duplicates': [n for n, row in enumerate(draft.entries) if row['name'].strip().casefold() in existing]}
+    return {'id': str(draft.pk), 'box': draft.box.number, 'state': draft.state, 'revision': draft.revision, 'entries': draft.entries, 'receipt': draft.receipt, 'transcript': draft.transcript, 'expires_at': draft.expires_at, 'photos': [f'/api/drafts/{draft.pk}/photos/{n}/' for n in range(len(draft.files))] if draft.state == 'open' and draft.expires_at > timezone.now() else [], 'duplicates': [n for n, row in enumerate(draft.entries) if row['name'].strip().casefold() in existing],
+            # A boolean, not the timestamp: the client only needs to know a run is in flight, and
+            # comparing a server deadline against a browser clock would skew the answer.
+            'analyzing': bool(draft.analyzing_until and draft.analyzing_until > timezone.now())}
 
 
 @endpoint(['POST'], owner=True)

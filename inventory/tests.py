@@ -64,6 +64,22 @@ class CoreTests(TestCase):
         self.assertEqual(self.post('/api/boxes/create/', {'number':12,'category':'Duplicate','restore':True}).status_code, 409)
         self.client.logout()
         self.assertNotContains(self.client.get('/'), 'Archived boxes')
+    def test_a_running_analysis_is_visible_to_a_returning_client(self):
+        # Recognition survives the browser leaving, but its result is written under the revision the
+        # run began with -- so a client that comes back and edits would silently discard it. The draft
+        # has to advertise that a run is in flight for the UI to be able to hold still.
+        from inventory.draft_views import data
+        self.client.force_login(self.owner)
+        draft = Draft.objects.create(owner=self.owner, box=self.box, entries=[], files=['a.jpg'])
+        self.assertFalse(data(draft)['analyzing'])
+        draft.analyzing_until = timezone.now() + timedelta(seconds=60)
+        draft.save(update_fields=['analyzing_until'])
+        self.assertTrue(data(draft)['analyzing'])
+        self.assertTrue(self.client.get(f'/api/drafts/{draft.pk}/').json()['analyzing'])
+        # An expired lock must not pin the UI open forever if a worker died mid-run.
+        draft.analyzing_until = timezone.now() - timedelta(seconds=1)
+        draft.save(update_fields=['analyzing_until'])
+        self.assertFalse(data(draft)['analyzing'])
     def test_suggested_box_number_skips_archived_numbers(self):
         # The suggestion must clear retired numbers too: box_create turns an existing retired number
         # into a *restore*, so suggesting one would revive an archived box instead of making a new
