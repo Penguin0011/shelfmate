@@ -166,6 +166,7 @@ class BulkItemTests(TestCase):
         self.assertEqual(Item.objects.filter(box=self.box).count(), 4)
 
 
+@override_settings(SECURE_SSL_REDIRECT=False)
 class DraftTests(TestCase):
     def setUp(self):
         CoreTests.setUp(self)
