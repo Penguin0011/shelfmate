@@ -46,7 +46,7 @@ h1,h2,h3,.box-category{overflow-wrap:anywhere}
 
 /* Uppercase label voice — the Swiss workhorse. */
 .eyebrow,.section-label,.group-head,.topbar,.wordmark,.session,.box-number,
-.match-label,.sheet-foot,.stat-label,.save-status,.select-bar,.history-row .eyebrow{
+.match-label,.stat-label,.save-status,.select-bar,.history-row .eyebrow{
   font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;
 }
 
@@ -120,12 +120,6 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
 .topbar>a:first-child{display:flex;align-items:center;gap:8px;min-height:32px}
 .topbar>a:first-child:hover{color:var(--red)}
 .site-address{margin-left:auto;color:var(--muted);letter-spacing:.14em;font-size:11px;font-weight:600;text-transform:uppercase}
-
-.sheet-foot{
-  display:flex;justify-content:space-between;gap:14px;
-  border-top:1px solid var(--hair);padding:11px var(--pad);
-  font-size:10px;letter-spacing:.18em;color:var(--muted);
-}
 
 /* ---------- hero ---------- */
 .hero{padding:26px var(--pad) 24px;border-bottom:1px solid var(--ink)}
@@ -214,8 +208,7 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
 /* ---------- box contents ---------- */
 .select-bar{
   display:flex;align-items:center;gap:14px;flex-wrap:wrap;
-  padding:9px var(--pad) 10px;border-bottom:1px solid var(--ink);
-  background:var(--sheet);position:sticky;top:0;z-index:3;
+  margin-top:18px;padding-top:15px;border-top:1px solid var(--hair);
 }
 .select-bar .check-label{margin:0;white-space:nowrap;gap:9px;font:inherit;letter-spacing:inherit;text-transform:inherit}
 .select-bar>span:not(.select-actions){flex:1;min-width:170px;color:var(--muted)}
@@ -236,7 +229,7 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
 .item-row:target .row-number{color:var(--red)}
 .inline-actions{display:flex;gap:20px;flex-wrap:wrap;margin-top:8px}
 
-.overflow{position:relative;align-self:flex-start;z-index:5}  /* above the sticky .select-bar */
+.overflow{position:relative;align-self:flex-start;z-index:5}  /* menu sits over the rows below it */
 .overflow summary{
   list-style:none;width:36px;height:36px;border:1px solid var(--hair);cursor:pointer;
   display:flex;align-items:center;justify-content:center;font-size:12px;letter-spacing:.08em;color:var(--muted);
