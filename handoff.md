@@ -2,7 +2,7 @@
 
 Django/SQLite home inventory. Household members browse and flag items; the owner signs in to
 manage boxes, add items from photos via AI recognition, and search. Live at
-<https://box.clouddev.dad/>, deployed at `0d49629`.
+<https://box.clouddev.dad/>; the deployed revision is recorded in `/opt/inventory/REVISION`.
 
 `README.md` is the reference for architecture and the API contract. This file covers the things
 that are not obvious from reading the code, and that cost real time to discover.
@@ -207,8 +207,9 @@ takes the write lock at `BEGIN` and serialises concurrent batches instead.
 ```sh
 cp .env.example .env     # fill in SECRET_KEY and at least one AI key
 .venv/bin/python manage.py migrate
-.venv/bin/python manage.py test          # 32 tests
-node scripts/check_ui.cjs                # requires Playwright and Chrome
+npm install
+.venv/bin/python manage.py test
+npm run test:ui                          # requires Chrome
 .venv/bin/python manage.py runserver
 ```
 
@@ -229,8 +230,5 @@ Never commit `.env`, `data/`, or photos.
    boxes are re-recognised from photos. No migration path — it needs new photos.
 2. **OpenRouter credit.** See above; $10 takes the daily cap from ~50 to 1000.
 3. **Proxy timeout unverified.** See the timeout stack section.
-4. **The repo has never been pushed anywhere.** No remote is configured. Note that `README.md` and
-   `deploy/inventory.service` contain internal IPs, the VM's SSH user and the live hostname, so a
-   public repo would expose the deployment topology. Private is the safe default.
-5. **Untracked in the working tree:** `Home Inventory mockup.html` (the original design reference).
+4. **Untracked in the working tree:** `Home Inventory mockup.html` (the original design reference).
    It is not committed.
