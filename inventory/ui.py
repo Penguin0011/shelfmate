@@ -1,7 +1,7 @@
 from itertools import groupby
 
 from django.shortcuts import render, get_object_or_404, redirect
-from django.db.models import Count
+from django.db.models import Count, Max
 from django.views.decorators.cache import never_cache
 from .models import Box, Draft, Flag
 from .views import item_data
@@ -27,7 +27,11 @@ def page(request, number=None, draft_id=None, screen='home'):
         screen = 'box'
     flags = Flag.objects.select_related('box').order_by('-created_at') if owner else Flag.objects.none()
     items = list(box.items.select_related('box')) if box else []
-    bootstrap = {'owner': bool(owner),
+    # Prefill the new-box number. Deliberately max+1 over *every* box including retired ones:
+    # box_create treats an existing retired number as a restore, so suggesting a reused number
+    # would silently revive an archived box -- and hand out an NFC tag already stuck to a real one.
+    next_number = (Box.objects.aggregate(highest=Max('number'))['highest'] or 0) + 1 if owner else None
+    bootstrap = {'owner': bool(owner), 'next_number': next_number,
                  'locations': sorted({b.location for b in boxes if b.location}, key=str.casefold) if owner else [],
                  'boxes': [{'number': b.number, 'category': b.category, 'location': b.location} for b in boxes],
                  'box': {'number': box.number, 'category': box.category, 'location': box.location, 'revision': box.revision, 'retired': box.retired} if box else None,

@@ -54,6 +54,17 @@ class CoreTests(TestCase):
         self.assertEqual(self.post('/api/boxes/create/', {'number':12,'category':'Duplicate'}).status_code, 409)
         self.client.logout()
         self.assertNotContains(self.client.get('/'), 'Archived boxes')
+    def test_suggested_box_number_skips_archived_numbers(self):
+        # The suggestion must clear retired numbers too: box_create turns an existing retired number
+        # into a *restore*, so suggesting one would revive an archived box instead of making a new
+        # one -- and point the owner at an NFC tag already stuck to a physical box.
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.get('/').context['bootstrap']['next_number'], 13)
+        self.assertEqual(self.post('/api/boxes/create/', {'number':30,'category':'Tools'}).status_code, 201)
+        self.assertEqual(self.post('/api/boxes/30/edit/', {'revision':0,'category':'Tools','retired':True}).status_code, 200)
+        self.assertEqual(self.client.get('/').context['bootstrap']['next_number'], 31)
+        self.client.logout()
+        self.assertIsNone(self.client.get('/').context['bootstrap']['next_number'])
     def test_location_validation_and_visibility(self):
         self.client.force_login(self.owner)
         response = self.post('/api/boxes/create/', {'number':21,'category':'Parts','location':' Office '})
