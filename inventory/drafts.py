@@ -40,10 +40,12 @@ def cleanup_files(draft):
     return True
 
 
-def upload(owner, box, photos):
-    if not 1 <= len(photos) <= 4 or sum(p.size for p in photos) > 25 * 1024 * 1024:
-        raise Invalid('Upload 1–4 photos, at most 25 MB total')
-    draft = Draft(owner=owner, box=box)
+def upload(owner, box, photos, transcript=''):
+    if not photos and not transcript:
+        raise Invalid('Add photos or a spoken description')
+    if len(photos) > 4 or sum(p.size for p in photos) > 25 * 1024 * 1024:
+        raise Invalid('Upload at most 4 photos, 25 MB total')
+    draft = Draft(owner=owner, box=box, transcript=transcript)
     folder = directory(draft)
     folder.mkdir(mode=0o700, parents=True)
     normalized = 0

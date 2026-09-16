@@ -72,6 +72,86 @@ function flagForm(item=null) {
     await api(`/api/boxes/${state.box.number}/flags/`,data);$('#dialog').close();notice('Flag sent to the owner. Thank you.');
   });
 }
+// Dictation is the browser's own SpeechRecognition: no audio ever reaches this server, no key, no
+// upload. Chrome and Safari have it; Firefox does not, so every mic button hides itself there and
+// the surrounding control stays usable by keyboard alone.
+// Resolved per call, not once at load, so a test can stand a fake in front of it.
+const Recognizer = () => window.SpeechRecognition || window.webkitSpeechRecognition;
+function listen({onText, onStop}) {
+  const recognition = new (Recognizer())();
+  recognition.lang = document.documentElement.lang || 'en-US';
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  let settled = '', live = true, failure = '';
+  // Only results from resultIndex on are new; re-reading the whole list duplicates text after a restart.
+  recognition.onresult = e => {
+    let interim = '';
+    for (let n = e.resultIndex; n < e.results.length; n++) {
+      // Trim and re-space each finished phrase: engines differ on whether they supply the leading
+      // space, and a restart starts a fresh phrase with none, which would run two words together.
+      if (e.results[n].isFinal) settled += e.results[n][0].transcript.trim() + ' ';
+      else interim += e.results[n][0].transcript;
+    }
+    onText(settled + interim);
+  };
+  recognition.onerror = e => {
+    // A silence or a stop() is not a failure; anything else ends the session with a reason to show.
+    if (e.error === 'no-speech' || e.error === 'aborted') return;
+    failure = e.error === 'not-allowed' || e.error === 'service-not-allowed'
+      ? 'Microphone access is blocked. Allow it in your browser settings, or type instead.'
+      : 'Speech recognition stopped working. Try again, or type instead.';
+    live = false;
+  };
+  // Both Chrome and iOS Safari end the session on a pause for breath, which would cut a rambling
+  // description off at the first one. Restart until the speaker says stop.
+  recognition.onend = () => {
+    if (live) { try { recognition.start(); return; } catch { /* already restarting */ } }
+    live = false; onStop(failure);
+  };
+  recognition.start();
+  return () => { live = false; recognition.stop(); };
+}
+// Returns false when the browser cannot listen, so callers can reword what is left.
+function micToggle(button, {onStart, onText, onDone}) {
+  button.hidden = !Recognizer();
+  if (!Recognizer()) return false;
+  let stop = null;
+  const finish = failure => { stop = null; button.classList.remove('listening'); button.setAttribute('aria-pressed','false'); onDone(failure); };
+  button.addEventListener('click', () => {
+    if (stop) { stop(); return; }
+    button.classList.add('listening'); button.setAttribute('aria-pressed','true');
+    if (onStart) onStart();
+    stop = listen({onText, onStop: finish});
+  });
+  return () => { if (stop) stop(); };
+}
+function describeForm() {
+  const MAX = 5000;
+  modal('Add items by talking',
+    '<p>Talk through the box out loud. Ramble, backtrack, correct yourself — the AI sorts it into entries you review before anything is saved.</p>'
+    + `<div class="field"><label for="f-transcript">What is in the box</label><textarea id="f-transcript" name="transcript" maxlength="${MAX}" rows="8" placeholder="e.g. there's a bag of M3 screws in here, about a hundred, and the little grey USB hub…"></textarea></div>`
+    + '<button type="button" id="dictate" class="mic-button"><span class="mic-dot" aria-hidden="true"></span><span id="dictate-label">Start talking</span></button>'
+    + '<p id="dictate-status" class="hint" aria-live="polite">Type it out, or dictate and fix anything the microphone gets wrong.</p>'
+    + '<p class="hint">No photos needed. Your words are sent for AI recognition; the draft is kept until you save or discard it.</p>',
+    'Sort it out', async f => {
+      const transcript = f.get('transcript').trim();
+      if (!transcript) throw Error('Say or type something about the box first.');
+      const data = new FormData();
+      data.append('transcript', transcript.slice(0, MAX));
+      const saved = await api(`/api/boxes/${state.box.number}/drafts/`, data);
+      location.assign(`/drafts/${saved.id}`);
+    });
+  const box = $('#f-transcript'), label = $('#dictate-label'), status = $('#dictate-status');
+  // Dictation appends to what is already in the box, so a typed correction is never overwritten.
+  let base = '';
+  const abort = micToggle($('#dictate'), {
+    onStart: () => { base = box.value ? box.value.trimEnd() + ' ' : ''; label.textContent = 'Stop'; status.textContent = 'Listening… speak naturally, then press Stop.'; },
+    onText: text => { box.value = (base + text).slice(0, MAX); },
+    onDone: failure => { label.textContent = 'Start talking'; status.textContent = failure || 'Stopped. Fix anything it misheard, then continue.'; box.focus(); },
+  });
+  if (!abort) status.textContent = 'This browser cannot listen. Type the description instead.';
+  else $('#dialog').addEventListener('close', abort, {once:true});
+}
 // Each pick adds to the batch instead of replacing it: iOS pickers often return one photo at a time.
 // Photos are shrunk to the server's own 1536px working size before upload, which turns a 6 MB HEIC
 // frame into ~500 KB of JPEG. That is what makes HEIC and 48MP phone photos work: the browser decodes
@@ -204,6 +284,7 @@ document.addEventListener('click', async e => {
     if(action==='edit-item')itemForm(item);
     if(action==='flag')flagForm(item);
     if(action==='upload')uploadForm();
+    if(action==='describe')describeForm();
     if(action==='bulk-move')bulkMoveForm();
     if(action==='bulk-delete')await bulkDelete();
     if(action==='resolve'||action==='dismiss'){button.disabled=true;await api(`/api/flags/${button.dataset.flag}/`,{status:action==='resolve'?'resolved':'dismissed'});success('Flag updated.');}
@@ -249,6 +330,12 @@ async function runSearch() {
 if($('#search-form')) {
   $('#search-form').addEventListener('submit',e=>{e.preventDefault();runSearch();});
   $('#clear-search').onclick=()=>{searchVersion++;$('#search-results').hidden=true;$('#query').value='';history.replaceState(null,'','/');$('#query').focus();};
+  // maxlength only constrains typing, so a long dictation must be clipped to the server's 500 limit.
+  micToggle($('#search-mic'), {
+    onStart:()=>notice('Listening… ask your question, then press the microphone again.'),
+    onText:text=>{$('#query').value=text.trim().slice(0,500);},
+    onDone:failure=>{if(failure)notice(failure,true);else{$('#notice').hidden=true;if($('#query').value.trim())runSearch();}},
+  });
   const q=new URLSearchParams(location.search).get('q');if(q){$('#query').value=q;runSearch();}
   if(state.owner)api('/api/drafts/',undefined,'GET').then(r=>{if(r.drafts.length){$('#draft-list').hidden=false;$('#draft-links').innerHTML=r.drafts.map(d=>`<a class="box-row" href="/drafts/${d.id}"><span class="row-number" aria-hidden="true">${String(d.box).padStart(2,'0')}</span><span class="box-copy"><span class="box-category">Continue adding</span><span class="box-sub">Box ${d.box} · unfinished draft</span></span></a>`).join('');}}).catch(e=>notice(e.message,true));
 }
@@ -262,7 +349,10 @@ if(state.draft) {
   function values(){return rows.map(({selected,...r})=>r);}
   function draw(){
     if(draft.state!=='open'||new Date(draft.expires_at)<=new Date()){editor.innerHTML=`<div class="empty"><h3>This draft is ${esc(draft.state==='open'?'expired':draft.state)}.</h3><p>Return to the box to see its saved contents.</p><a class="button" href="/box/${draft.box}">Open box</a></div>`;return;}
-    editor.innerHTML=`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div><button id="analyze" class="green wide">${rows.length?'Recognize again':'Recognize items from photos'}</button><p id="analyze-progress" class="analyzing" hidden aria-live="polite"></p><p class="hint">You can also enter items manually. Review every suggestion before saving.</p><div id="draft-rows">${rows.map((r,n)=>`<section class="draft-row" data-row="${n}"><div class="draft-row-top"><label class="check-label"><input type="checkbox" data-select="${n}" ${r.selected?'checked':''}>Keep</label><button type="button" class="text-button danger" data-remove="${n}">Remove</button></div><div class="field"><label for="name-${n}">Item or assortment name</label><input id="name-${n}" data-key="name" maxlength="200" value="${esc(r.name)}" required></div><div class="field"><label for="description-${n}">Description</label><textarea id="description-${n}" data-key="description" maxlength="2000">${esc(r.description)}</textarea></div><div class="field"><label for="aliases-${n}">Other names</label><input id="aliases-${n}" data-key="aliases" maxlength="1000" value="${esc(r.aliases)}"></div>${draft.duplicates.includes(n)?'<p class="duplicate">A matching name is already in this box. Review before adding.</p>':''}</section>`).join('')}</div><div class="actions wrap"><button id="add-row">+ Add an entry</button><button id="combine">Merge kept entries</button></div><div class="save-bar"><div class="keep-bar"><label class="check-label"><input type="checkbox" id="keep-all">Select all</label><span id="keep-count" aria-live="polite"></span></div><p id="save-status" class="save-status" role="status">${dirty?'Unsaved changes':'Draft saved'}</p><div class="actions"><button id="save-draft" class="primary">Save to Box ${draft.box}</button><button id="cancel-draft">Discard</button></div><p class="hint">Only kept entries are saved. Uploaded photos are deleted locally.</p></div>`;
+    // ponytail: the transcript is read-only here -- correct the entries it produced instead. Make it
+    // editable only if re-recognizing from a fixed-up ramble turns out to be worth a round trip.
+    const source=draft.photos.length?(draft.transcript?'photos and description':'photos'):'what you said';
+    editor.innerHTML=`${draft.photos.length?`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div>`:''}${draft.transcript?`<div class="transcript-note"><span class="eyebrow">What you said</span><p>${esc(draft.transcript)}</p></div>`:''}<button id="analyze" class="green wide">${rows.length?'Recognize again':`Recognize items from ${source}`}</button><p id="analyze-progress" class="analyzing" hidden aria-live="polite"></p><p class="hint">You can also enter items manually. Review every suggestion before saving.</p><div id="draft-rows">${rows.map((r,n)=>`<section class="draft-row" data-row="${n}"><div class="draft-row-top"><label class="check-label"><input type="checkbox" data-select="${n}" ${r.selected?'checked':''}>Keep</label><button type="button" class="text-button danger" data-remove="${n}">Remove</button></div><div class="field"><label for="name-${n}">Item or assortment name</label><input id="name-${n}" data-key="name" maxlength="200" value="${esc(r.name)}" required></div><div class="field"><label for="description-${n}">Description</label><textarea id="description-${n}" data-key="description" maxlength="2000">${esc(r.description)}</textarea></div><div class="field"><label for="aliases-${n}">Other names</label><input id="aliases-${n}" data-key="aliases" maxlength="1000" value="${esc(r.aliases)}"></div>${draft.duplicates.includes(n)?'<p class="duplicate">A matching name is already in this box. Review before adding.</p>':''}</section>`).join('')}</div><div class="actions wrap"><button id="add-row">+ Add an entry</button><button id="combine">Merge kept entries</button></div><div class="save-bar"><div class="keep-bar"><label class="check-label"><input type="checkbox" id="keep-all">Select all</label><span id="keep-count" aria-live="polite"></span></div><p id="save-status" class="save-status" role="status">${dirty?'Unsaved changes':'Draft saved'}</p><div class="actions"><button id="save-draft" class="primary">Save to Box ${draft.box}</button><button id="cancel-draft">Discard</button></div><p class="hint">Only kept entries are saved.${draft.photos.length?' Uploaded photos are deleted locally.':''}</p></div>`;
     $('#analyze').onclick=analyze;$('#add-row').onclick=()=>{rows.push({name:'',description:'',aliases:'',selected:true});dirty=true;epoch++;draw();$(`#name-${rows.length-1}`).focus();};
     $('#combine').onclick=()=>{const selected=rows.filter(r=>r.selected);if(selected.length<2){status('Keep at least two entries to merge them.',true);return;}if(selected.length>2&&!confirm(`Merge ${selected.length} kept entries into a single item? This cannot be undone.`))return;const first=rows.findIndex(r=>r.selected);const combined={name:selected.map(r=>r.name).join(' + ').slice(0,200),description:selected.map(r=>r.description).filter(Boolean).join('\n').slice(0,2000),aliases:selected.map(r=>r.aliases).filter(Boolean).join(', ').slice(0,1000),selected:true};rows=rows.filter((r,n)=>!r.selected||n===first).map(r=>r.selected?combined:r);changed();draw();};
     $('#save-draft').onclick=saveFinal;$('#cancel-draft').onclick=cancel;
@@ -292,14 +382,14 @@ if(state.draft) {
   let ticker;
   // Thresholds track the server's AI budget (settings.AI_TOTAL_TIMEOUT, 55 s); typical runs finish near 20 s.
   function stage(seconds,count){
-    if(seconds<10)return `Sending ${count} photo${count===1?'':'s'} to the AI model…`;
-    if(seconds<30)return 'Reading the photos and naming what it sees…';
+    if(seconds<10)return count?`Sending ${count} photo${count===1?'':'s'} to the AI model…`:'Sending your description to the AI model…';
+    if(seconds<30)return count?'Reading the photos and naming what it sees…':'Working through what you said and naming the items…';
     if(seconds<50)return 'Still working. Busy models take longer — your draft is safe.';
-    return 'Almost at the time limit. If this fails, your photos and draft are kept.';
+    return 'Almost at the time limit. If this fails, your draft is kept.';
   }
   async function analyze(){
     if(busy)return;
-    if(rows.length&&!confirm('Replace these entries with new photo suggestions?'))return;
+    if(rows.length&&!confirm('Replace these entries with fresh AI suggestions?'))return;
     disable(true);
     const button=$('#analyze'), panel=$('#analyze-progress'), label=button.textContent;
     const count=draft.photos.length, started=Date.now();

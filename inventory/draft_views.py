@@ -3,7 +3,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from .access import endpoint, body
 from .models import Draft, Box
-from .validation import integer, Invalid
+from .validation import integer, string, Invalid
 from . import drafts
 
 
@@ -13,13 +13,13 @@ def owned(request, pk):
 
 def data(draft):
     existing = {name.strip().casefold() for name in draft.box.items.values_list('name', flat=True)}
-    return {'id': str(draft.pk), 'box': draft.box.number, 'state': draft.state, 'revision': draft.revision, 'entries': draft.entries, 'receipt': draft.receipt, 'expires_at': draft.expires_at, 'photos': [f'/api/drafts/{draft.pk}/photos/{n}/' for n in range(len(draft.files))] if draft.state == 'open' and draft.expires_at > timezone.now() else [], 'duplicates': [n for n, row in enumerate(draft.entries) if row['name'].strip().casefold() in existing]}
+    return {'id': str(draft.pk), 'box': draft.box.number, 'state': draft.state, 'revision': draft.revision, 'entries': draft.entries, 'receipt': draft.receipt, 'transcript': draft.transcript, 'expires_at': draft.expires_at, 'photos': [f'/api/drafts/{draft.pk}/photos/{n}/' for n in range(len(draft.files))] if draft.state == 'open' and draft.expires_at > timezone.now() else [], 'duplicates': [n for n, row in enumerate(draft.entries) if row['name'].strip().casefold() in existing]}
 
 
 @endpoint(['POST'], owner=True)
 def create(request, number):
     box = get_object_or_404(Box, number=number, retired=False)
-    draft = drafts.upload(request.user, box, request.FILES.getlist('photos'))
+    draft = drafts.upload(request.user, box, request.FILES.getlist('photos'), string(request.POST, 'transcript', 5000))
     return JsonResponse(data(draft), status=201)
 
 

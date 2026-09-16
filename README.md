@@ -37,7 +37,7 @@ All request/response bodies are JSON except multipart photo uploads. Fetch `GET 
 | POST `/api/items/bulk/` | Owner | Move or delete selected items with per-item revisions |
 | POST `/api/boxes/12/flags/` | Household | `reason`: missing/taken/moved/other; optional `item` ID, `note`, `reporter` |
 | POST `/api/flags/7/` | Owner | `status`: resolved/dismissed |
-| POST `/api/boxes/12/drafts/` | Owner | Multipart repeated `photos` files |
+| POST `/api/boxes/12/drafts/` | Owner | Multipart: repeated `photos` files and/or a `transcript` field (at least one) |
 | GET `/api/drafts/` | Owner | Recoverable open drafts |
 | GET `/api/drafts/<uuid>/` | Owner | Entries, revision, photo URLs, exact-name duplicate hints |
 | POST `/api/drafts/<uuid>/` | Owner | `revision`, `entries` array; each row has name/description/aliases |

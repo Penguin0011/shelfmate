@@ -32,6 +32,7 @@ class Draft(models.Model):
     state = models.CharField(max_length=16, default='open')
     entries = models.JSONField(default=list)
     files = models.JSONField(default=list)
+    transcript = models.CharField(max_length=5000, blank=True, default="")
     receipt = models.JSONField(default=list)
     revision = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)

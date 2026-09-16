@@ -143,12 +143,28 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
 /* ---------- search ---------- */
 .ask{position:relative;display:flex;align-items:center;flex:1 1 260px;min-width:0;margin-bottom:4px}
 .ask input{padding:14px 52px 14px 15px;font-size:16px}
+.ask:has(.ask-mic:not([hidden])) input{padding-right:98px}
 .ask input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none}
 .ask-go{
   position:absolute;right:1px;top:1px;height:calc(100% - 2px);width:46px;
   min-height:0;padding:0;border:0;background:none;color:var(--red);
 }
 .ask-go:hover{background:var(--red);color:#fff}
+.ask-mic{
+  position:absolute;right:47px;top:1px;height:calc(100% - 2px);width:46px;
+  min-height:0;padding:0;border:0;border-right:1px solid var(--hair);background:none;color:var(--muted);
+}
+.ask-mic:hover{background:var(--hair);color:var(--ink)}
+.ask-mic.listening,.ask-mic.listening:hover{background:var(--red);color:#fff}
+.mic-button{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;margin-top:14px}
+.mic-dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none}
+.mic-button:hover .mic-dot{background:var(--sheet)}
+.mic-button.listening,.mic-button.listening:hover{background:var(--red);border-color:var(--red);color:#fff}
+.mic-button.listening .mic-dot{background:#fff;animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.mic-button.listening .mic-dot{animation:none}}
+.transcript-note{border:1px solid var(--hair);padding:14px;margin:0 0 18px;background:var(--raised)}
+.transcript-note p{margin:6px 0 0;color:var(--prose);font-size:15px;line-height:1.6;white-space:pre-wrap}
 .ask input:focus~.ask-go{color:var(--red)}
 .actions{display:flex;gap:10px;margin-top:14px}
 .actions>*{flex:1}

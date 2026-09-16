@@ -436,6 +436,34 @@ class DraftJourneyTests(TestCase):
             self.assertEqual(result['box'],12)
             self.assertEqual(post('/api/boxes/12/flags/',{'item':result['id'],'reason':'taken'}).status_code,201)
 
+class SpokenDraftTests(TestCase):
+    def test_transcript_only_draft_analyzes_and_saves_without_photos(self):
+        buckets.clear()
+        owner=get_user_model().objects.create_user('talker',is_staff=True)
+        Box.objects.create(number=7,category='Workshop')
+        self.client.force_login(owner)
+        created=self.client.post('/api/boxes/7/drafts/',{'transcript':"there's a bag of M3 screws, no wait M4, and the grey USB hub"})
+        self.assertEqual(created.status_code,201)
+        self.assertEqual(created.json()['photos'],[])
+        pk=created.json()['id']
+        with patch('inventory.ai.complete',return_value=[{'name':'M4 screws','description':'','aliases':''}]) as call:
+            self.assertEqual(self.client.post(f'/api/drafts/{pk}/analyze/',json.dumps({'revision':0}),content_type='application/json').status_code,200)
+        # The spoken words must reach the model, and the prompt must not tell it to look at photos.
+        sent=call.call_args[0][0][0]['content']
+        self.assertNotIn('image_url',[part['type'] for part in sent])
+        self.assertIn('M3 screws',sent[1]['text'])
+        self.assertNotIn('photos attached',sent[0]['text'])
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self.client.post(f'/api/drafts/{pk}/save/',json.dumps({'revision':1}),content_type='application/json').status_code,200)
+        self.assertEqual(Item.objects.get().name,'M4 screws')
+
+    def test_a_draft_needs_photos_or_words(self):
+        owner=get_user_model().objects.create_user('empty',is_staff=True)
+        Box.objects.create(number=8,category='Workshop')
+        self.client.force_login(owner)
+        self.assertEqual(self.client.post('/api/boxes/8/drafts/',{}).status_code,400)
+
+
 @override_settings(SECURE_SSL_REDIRECT=False)
 class InterfaceTests(TestCase):
     def test_household_pages_escape_data_and_hide_owner_controls(self):

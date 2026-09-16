@@ -44,5 +44,38 @@ await page.goto(baseURL);await page.getByRole('button',{name:'+ New box',exact:t
 async function archiveBox(){await page.getByLabel('Box actions').click();await page.getByRole('button',{name:'Edit box',exact:true}).click();await page.getByLabel('Archive this box').check();await page.getByRole('button',{name:'Save box',exact:true}).click();await page.getByRole('button',{name:'Restore / reuse Box 21',exact:true}).waitFor();}
 await archiveBox();await page.goto(baseURL);await page.locator('summary').filter({hasText:'Archived boxes'}).click();await page.locator('.archived-boxes a').filter({hasText:'Reusable test'}).click();await page.getByRole('button',{name:'Restore / reuse Box 21',exact:true}).click();await page.getByLabel('Category / name').fill('Restored test');assert.equal(await page.getByLabel('Location (optional)').inputValue(),'Office');await page.getByLabel('Location (optional)').fill('Garage');await page.getByRole('button',{name:'Restore box',exact:true}).click();await page.getByRole('status').filter({hasText:'Box restored'}).waitFor();
 await archiveBox();await page.goto(baseURL);await page.getByRole('button',{name:'+ New box',exact:true}).click();await page.getByLabel('Box number',{exact:true}).fill('21');await page.getByLabel('Category / name').fill('Reassigned test');assert.deepEqual(await page.locator('#room-choices option').evaluateAll(options=>options.map(o=>o.value)),[]);await page.getByLabel('Location (optional)').fill('Closet');await page.getByRole('button',{name:'Save box',exact:true}).click();await page.waitForURL('**/box/21');await page.getByRole('status').filter({hasText:'Box restored'}).waitFor();await page.getByRole('heading',{name:/Reassigned test/}).waitFor();assert.match(await page.locator('.box-hero>p').textContent(),/Closet/);
-assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);console.log('UI flows passed: search, household flag, login, manual entry/move, photo review/autosave/save, flag resolution, archive/restore and number reuse.');} finally {if(browser)await browser.close();server.kill();await new Promise(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',resolve);});fs.rmSync(directory,{recursive:true,force:true});}
+// Dictation, driven through a faithful SpeechRecognition stub: ONE instance reused across sessions,
+// a cumulative results list that start() resets, an interim result replaced in place by its final
+// version, and resultIndex at the first changed slot. No microphone is involved -- what this checks
+// is that a pause restarts instead of ending, and that crossing sessions neither duplicates a phrase
+// nor runs two of them together. Both are silent failures in a browser that has a working mic.
+await page.getByLabel('Box actions').click();await page.getByRole('button',{name:'Add items by talking'}).click();
+const spoken=await page.evaluate(()=>{
+ let live=null;
+ window.SpeechRecognition=class{
+  constructor(){live=this;this.results=[];this.slot=0;this.starts=0;}
+  start(){this.starts++;this.results=[];this.slot=0;}
+  stop(){this.onend();}
+  hear(text,isFinal){this.results[this.slot]={0:{transcript:text},isFinal};this.results.length=this.slot+1;this.onresult({resultIndex:this.slot,results:this.results});if(isFinal)this.slot++;}
+ };
+ const box=document.querySelector('#f-transcript');
+ box.value='typed first.';                    // a typed start must survive dictation
+ document.querySelector('#dictate').click();
+ live.hear('winter gloves',true);
+ live.hear(' three pairs',true);
+ live.hear(' and a therm',false);             // interim, mid-word
+ const withInterim=box.value;
+ live.hear(' and a thermos',true);            // finalized in the same slot
+ live.onend();                                // the pause: engine ends, listen() must restart
+ live.hear('plus the wool scarf',true);       // fresh session, resultIndex back to 0
+ document.querySelector('#dictate').click();  // Stop
+ return {text:box.value.trim(),withInterim,restarts:live.starts,label:document.querySelector('#dictate-label').textContent};
+});
+assert.equal(spoken.text,'typed first. winter gloves three pairs and a thermos plus the wool scarf');
+assert.match(spoken.withInterim,/and a therm$/,'interim speech must show before it is finalized');
+assert.equal(spoken.restarts,2,'a pause for breath must restart the session, not end dictation');
+assert.equal(spoken.label,'Start talking','Stop must return the button to its resting state');
+await page.getByRole('button',{name:'Cancel'}).click();
+await page.goto(baseURL);await page.locator('#search-mic').waitFor({state:'visible'});
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);console.log('UI flows passed: search, household flag, login, manual entry/move, photo review/autosave/save, dictation across a pause, flag resolution, archive/restore and number reuse.');} finally {if(browser)await browser.close();server.kill();await new Promise(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',resolve);});fs.rmSync(directory,{recursive:true,force:true});}
 })();
