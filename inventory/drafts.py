@@ -125,6 +125,8 @@ def save(draft_id, owner, revision):
         open_draft(draft)
         if revision != draft.revision:
             raise Invalid('Draft changed; reload before saving')
+        if not draft.box_id:
+            raise Invalid('Choose a box before saving')
         if draft.box.retired:
             raise Invalid('Box is retired')
         proposed = entries(draft.entries)

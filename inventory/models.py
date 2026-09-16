@@ -28,7 +28,9 @@ def touch_boxes(*ids):
 class Draft(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
-    box = models.ForeignKey(Box, on_delete=models.PROTECT)
+    # Null until the owner picks one: a quick snap from the home screen starts recognition
+    # first and asks which box it belongs in while the model is still reading the photo.
+    box = models.ForeignKey(Box, on_delete=models.PROTECT, null=True)
     state = models.CharField(max_length=16, default='open')
     entries = models.JSONField(default=list)
     files = models.JSONField(default=list)

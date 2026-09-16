@@ -15,7 +15,8 @@ urlpatterns = [
 from inventory import draft_views as d
 urlpatterns += [
     path('api/boxes/<int:number>/drafts/', d.create),
-    path('api/drafts/', d.listing), path('api/drafts/<uuid:pk>/', d.detail),
+    path('api/drafts/', d.listing), path('api/drafts/new/', d.create), path('api/drafts/<uuid:pk>/', d.detail),
+    path('api/drafts/<uuid:pk>/box/', d.assign),
     path('api/drafts/<uuid:pk>/save/', d.save), path('api/drafts/<uuid:pk>/cancel/', d.cancel),
     path('api/drafts/<uuid:pk>/photos/<int:index>/', d.photo),
 ]

@@ -180,6 +180,26 @@ async function toUploadableJpeg(file) {
     return new File([blob], file.name.replace(/\.[^.]+$/,'')+'.jpg', {type:'image/jpeg', lastModified:file.lastModified});
   } finally { bitmap.close(); }
 }
+// capture="environment" opens the rear camera directly on a phone; desktop browsers ignore it and
+// show a file picker, which is a fine fallback. Shares toUploadableJpeg with the upload modal so a
+// 48MP camera frame never leaves the device at full size.
+function snapItem() {
+  const input=document.createElement('input');
+  input.type='file'; input.accept='image/*'; input.capture='environment';
+  input.onchange=async () => {
+    const file=input.files&&input.files[0];
+    if(!file)return;
+    notice('Uploading your photo…');
+    try{
+      const shrunk=await toUploadableJpeg(file);
+      if(!shrunk)throw Error('That photo could not be read. Try again, or use Add items from photos.');
+      const data=new FormData(); data.append('photos',shrunk);
+      const saved=await api('/api/drafts/new/',data);
+      location.assign(`/drafts/${saved.id}?analyze=1`);
+    }catch(error){notice(error.message,true);}
+  };
+  input.click();
+}
 function uploadForm() {
   const MAX=4, MAX_EACH=10*1024*1024, MAX_TOTAL=25*1024*1024;
   const staged=[], urls=[];
@@ -291,6 +311,7 @@ document.addEventListener('click', async e => {
     if(action==='new-item')itemForm();
     if(action==='edit-item')itemForm(item);
     if(action==='flag')flagForm(item);
+    if(action==='snap')snapItem();
     if(action==='upload')uploadForm();
     if(action==='describe')describeForm();
     if(action==='bulk-move')bulkMoveForm();
@@ -358,12 +379,38 @@ if(state.draft) {
   // Recognition keeps running on the server after you leave, and its result is written under the
   // revision the run started with -- so an edit made while it is in flight would discard it. Reopen
   // a running draft and it stays read-only until the result lands, then redraws with it.
+  // Filing control for a draft that has no box yet. It is the one input allowed while recognition
+  // runs: /box/ assigns without bumping revision, so it cannot invalidate the result in flight.
+  function filingField(){
+    if(draft.box)return '';
+    const options=state.boxes.map(b=>`<option value="${b.number}">${esc(b.category)} · Box ${b.number}${b.location?` · ${esc(b.location)}`:''}</option>`).join('');
+    return `<div class="field filing"><label for="f-draft-box">Which box does this go in?</label><select id="f-draft-box"><option value="">Choose a box…</option>${options}</select></div>`;
+  }
+  function wireFiling(){
+    const select=$('#f-draft-box');
+    if(!select)return;
+    select.onchange=async () => {
+      const number=Number(select.value);
+      if(!number)return;
+      select.disabled=true;
+      try{
+        await api(`/api/drafts/${draft.id}/box/`,{box:number});
+        draft.box=number;      // optimistic: the 3s poll must not reset the choice under the user
+        notice(`Filed under Box ${number}.`);
+        // Mid-recognition the editor is showing live progress; a redraw would tear that down and
+        // orphan the ticker. The draw that follows the result renders the filed state anyway.
+        if(busy){const field=select.closest('.filing');if(field)field.remove();}
+        else draw();
+      }catch(error){notice(error.message,true);select.disabled=false;}
+    };
+  }
   function drawAnalyzing(){
     const source=draft.photos.length?(draft.transcript?'your photos and description':'your photos'):'what you said';
-    editor.innerHTML=`${draft.photos.length?`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div>`:''}<p class="analyzing" aria-live="polite">Recognizing items from ${source}…</p><p class="hint">This keeps running if you close the page — the result is saved to this draft. Editing is paused until it lands, so nothing overwrites it.</p><div class="actions"><a class="button" href="/box/${draft.box}">Open Box ${draft.box}</a></div>`;
+    editor.innerHTML=`${draft.photos.length?`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div>`:''}<p class="analyzing" aria-live="polite">Recognizing items from ${source}…</p><p class="hint">This keeps running if you close the page — the result is saved to this draft. Editing is paused until it lands, so nothing overwrites it.</p>${filingField()}<div class="actions">${draft.box?`<a class="button" href="/box/${draft.box}">Open Box ${draft.box}</a>`:''}</div>`;
+    wireFiling();
     clearTimeout(poll);
     poll=setTimeout(async()=>{
-      try{draft=await api(`/api/drafts/${draft.id}/`,undefined,'GET');rows=draft.entries.map(r=>({...r,selected:false}));dirty=false;draw();}
+      try{const filed=draft.box;draft=await api(`/api/drafts/${draft.id}/`,undefined,'GET');if(!draft.box&&filed)draft.box=filed;rows=draft.entries.map(r=>({...r,selected:false}));dirty=false;draw();}
       // Keep retrying a flaky connection, but a draft that is gone or no longer ours will never
       // come back -- polling it every 3s for the life of an abandoned tab helps nobody.
       catch(error){if(error.status>=400&&error.status<500){notice('This draft is no longer available. Reload the page.',true);return;}drawAnalyzing();}
@@ -376,10 +423,11 @@ if(state.draft) {
     // ponytail: the transcript is read-only here -- correct the entries it produced instead. Make it
     // editable only if re-recognizing from a fixed-up ramble turns out to be worth a round trip.
     const source=draft.photos.length?(draft.transcript?'photos and description':'photos'):'what you said';
-    editor.innerHTML=`${draft.photos.length?`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div>`:''}${draft.transcript?`<div class="transcript-note"><span class="eyebrow">What you said</span><p>${esc(draft.transcript)}</p></div>`:''}<button id="analyze" class="green wide">${rows.length?'Recognize again':`Recognize items from ${source}`}</button><p id="analyze-progress" class="analyzing" hidden aria-live="polite"></p><p class="hint">You can also enter items manually. Review every suggestion before saving.</p><div id="draft-rows">${rows.map((r,n)=>`<section class="draft-row" data-row="${n}"><div class="draft-row-top"><label class="check-label"><input type="checkbox" data-select="${n}" ${r.selected?'checked':''}>Select</label><button type="button" class="text-button danger" data-remove="${n}">Remove</button></div><div class="field"><label for="name-${n}">Item or assortment name</label><input id="name-${n}" data-key="name" maxlength="200" value="${esc(r.name)}" required></div><div class="field"><label for="description-${n}">Description</label><textarea id="description-${n}" data-key="description" maxlength="2000">${esc(r.description)}</textarea></div><div class="field"><label for="aliases-${n}">Other names</label><input id="aliases-${n}" data-key="aliases" maxlength="1000" value="${esc(r.aliases)}"></div>${draft.duplicates.includes(n)?'<p class="duplicate">A matching name is already in this box. Review before adding.</p>':''}</section>`).join('')}</div><div class="actions wrap"><button id="add-row">+ Add an entry</button><button id="combine">Merge selected entries</button></div><div class="save-bar"><div class="selection-bar"><label class="check-label"><input type="checkbox" id="draft-select-all">Select all</label><span id="draft-select-count" aria-live="polite"></span></div><p id="save-status" class="save-status" role="status">${dirty?'Unsaved changes':'Draft saved'}</p><div class="actions"><button id="save-draft" class="primary">Save to Box ${draft.box}</button><button id="cancel-draft">Discard</button></div><p class="hint">Everything listed here is saved — use Remove to drop an entry. Selecting is only for merging.${draft.photos.length?' Uploaded photos are deleted locally.':''}</p></div>`;
+    editor.innerHTML=`${draft.photos.length?`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div>`:''}${draft.transcript?`<div class="transcript-note"><span class="eyebrow">What you said</span><p>${esc(draft.transcript)}</p></div>`:''}<button id="analyze" class="green wide">${rows.length?'Recognize again':`Recognize items from ${source}`}</button><p id="analyze-progress" class="analyzing" hidden aria-live="polite"></p>${filingField()}<p class="hint">You can also enter items manually. Review every suggestion before saving.</p><div id="draft-rows">${rows.map((r,n)=>`<section class="draft-row" data-row="${n}"><div class="draft-row-top"><label class="check-label"><input type="checkbox" data-select="${n}" ${r.selected?'checked':''}>Select</label><button type="button" class="text-button danger" data-remove="${n}">Remove</button></div><div class="field"><label for="name-${n}">Item or assortment name</label><input id="name-${n}" data-key="name" maxlength="200" value="${esc(r.name)}" required></div><div class="field"><label for="description-${n}">Description</label><textarea id="description-${n}" data-key="description" maxlength="2000">${esc(r.description)}</textarea></div><div class="field"><label for="aliases-${n}">Other names</label><input id="aliases-${n}" data-key="aliases" maxlength="1000" value="${esc(r.aliases)}"></div>${draft.duplicates.includes(n)?'<p class="duplicate">A matching name is already in this box. Review before adding.</p>':''}</section>`).join('')}</div><div class="actions wrap"><button id="add-row">+ Add an entry</button><button id="combine">Merge selected entries</button></div><div class="save-bar"><div class="selection-bar"><label class="check-label"><input type="checkbox" id="draft-select-all">Select all</label><span id="draft-select-count" aria-live="polite"></span></div><p id="save-status" class="save-status" role="status">${dirty?'Unsaved changes':'Draft saved'}</p><div class="actions"><button id="save-draft" class="primary" ${draft.box?'':'disabled'}>${draft.box?`Save to Box ${draft.box}`:'Choose a box to save'}</button><button id="cancel-draft">Discard</button></div><p class="hint">Everything listed here is saved — use Remove to drop an entry. Selecting is only for merging.${draft.photos.length?' Uploaded photos are deleted locally.':''}</p></div>`;
     $('#analyze').onclick=analyze;$('#add-row').onclick=()=>{rows.push({name:'',description:'',aliases:'',selected:false});dirty=true;epoch++;draw();$(`#name-${rows.length-1}`).focus();};
     $('#combine').onclick=()=>{const selected=rows.filter(r=>r.selected);if(selected.length<2){status('Select at least two entries to merge them.',true);return;}if(selected.length>2&&!confirm(`Merge ${selected.length} selected entries into a single item? This cannot be undone.`))return;const first=rows.findIndex(r=>r.selected);const combined={name:selected.map(r=>r.name).join(' + ').slice(0,200),description:selected.map(r=>r.description).filter(Boolean).join('\n').slice(0,2000),aliases:selected.map(r=>r.aliases).filter(Boolean).join(', ').slice(0,1000),selected:true};rows=rows.filter((r,n)=>!r.selected||n===first).map(r=>r.selected?combined:r);changed();draw();};
     $('#save-draft').onclick=saveFinal;$('#cancel-draft').onclick=cancel;
+    wireFiling();
     $('#draft-select-all').onclick=e=>{const on=e.target.checked;rows.forEach(r=>r.selected=on);draw();};
     selectionStatus();
   }
@@ -400,6 +448,7 @@ if(state.draft) {
     };
     queue=queue.catch(()=>{}).then(operation);return queue;
   }
+  // Selects are deliberately absent here: the box picker must stay usable while recognition runs.
   function disable(on){busy=on;editor.querySelectorAll('button,input,textarea').forEach(e=>e.disabled=on);}
   // The model returns nothing until it has finished reading every photo, so show the wait next to
   // the button that started it. Silence for 30-60 seconds is what reads as a broken server.
@@ -458,4 +507,6 @@ if(state.draft) {
   editor.addEventListener('click',e=>{const b=e.target.closest('[data-remove]');if(b&&!busy){rows.splice(Number(b.dataset.remove),1);changed();draw();}});
   window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
   draw();
+  // Arrived straight from a snap: nothing has been read yet, so start without a second click.
+  if(new URLSearchParams(location.search).get('analyze')==='1'&&!rows.length&&!draft.analyzing)runAnalyze();
 }

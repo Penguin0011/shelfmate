@@ -539,6 +539,52 @@ class DraftContextTests(TestCase):
             self.assertEqual(notes(sent['content']),[])
             self.assertNotIn('not itself a source of items',sent['content'][0]['text'])
 
+class QuickSnapTests(TestCase):
+    def test_box_is_chosen_while_recognition_runs_without_discarding_it(self):
+        buckets.clear()
+        owner=get_user_model().objects.create_user('snapper',is_staff=True)
+        Box.objects.create(number=4,category='Shelf')
+        self.client.force_login(owner)
+        with tempfile.TemporaryDirectory() as directory, override_settings(PHOTO_ROOT=Path(directory)):
+            stream=io.BytesIO();Image.new('RGB',(64,64),'white').save(stream,format='PNG')
+            created=self.client.post('/api/drafts/new/',{'photos':SimpleUploadedFile('p.png',stream.getvalue())})
+            self.assertEqual(created.status_code,201)
+            pk=created.json()['id']
+            self.assertIsNone(created.json()['box'],'a snapped draft starts unfiled')
+            self.assertEqual(created.json()['duplicates'],[],'duplicate matching needs a box and must not blow up without one')
+            def post(path,data):
+                return self.client.post(path,json.dumps(data),content_type='application/json')
+            # Unfiled drafts cannot be saved: the photo would have nowhere to go.
+            self.assertEqual(post(f'/api/drafts/{pk}/save/',{'revision':0}).status_code,400)
+            # The whole point of the flow: the box is picked *during* the run. Assigning must not bump
+            # revision, or the result fails its own revision guard and is silently thrown away.
+            def file_it_mid_run(messages,validate):
+                self.assertEqual(post(f'/api/drafts/{pk}/box/',{'box':4}).status_code,200)
+                return [{'name':'Snapped item','description':'','aliases':''}]
+            with patch('inventory.ai.complete',side_effect=file_it_mid_run):
+                analyzed=self.client.post(f'/api/drafts/{pk}/analyze/',json.dumps({'revision':0}),content_type='application/json')
+            self.assertEqual(analyzed.status_code,200,'filing mid-run must not discard the recognition')
+            self.assertEqual(analyzed.json()['entries'][0]['name'],'Snapped item')
+            self.assertEqual(analyzed.json()['box'],4)
+            draft=Draft.objects.get(pk=pk)
+            self.assertEqual(draft.box.number,4)
+            with self.captureOnCommitCallbacks(execute=True):
+                self.assertEqual(post(f'/api/drafts/{pk}/save/',{'revision':draft.revision}).status_code,200)
+            self.assertEqual(Item.objects.get(name='Snapped item').box.number,4)
+
+    def test_unfiled_draft_survives_listing_and_its_own_page(self):
+        # A null box reaches the home draft list and the draft page; neither may 500 on it.
+        owner=get_user_model().objects.create_user('lister',is_staff=True)
+        self.client.force_login(owner)
+        with tempfile.TemporaryDirectory() as directory, override_settings(PHOTO_ROOT=Path(directory)):
+            stream=io.BytesIO();Image.new('RGB',(64,64),'white').save(stream,format='PNG')
+            pk=self.client.post('/api/drafts/new/',{'photos':SimpleUploadedFile('p.png',stream.getvalue())}).json()['id']
+            listed=self.client.get('/api/drafts/').json()['drafts']
+            self.assertEqual([d['box'] for d in listed],[None])
+            page=self.client.get(f'/drafts/{pk}')
+            self.assertEqual(page.status_code,200)
+            self.assertContains(page,'Not filed yet')
+
 class SpokenDraftTests(TestCase):
     def test_transcript_only_draft_analyzes_and_saves_without_photos(self):
         buckets.clear()

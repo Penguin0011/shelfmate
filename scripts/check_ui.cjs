@@ -111,5 +111,31 @@ setLock("from inventory.models import Draft\nDraft.objects.filter(state='open').
 await page.getByLabel('Item or assortment name',{exact:true}).waitFor({timeout:15000});
 assert.equal(await page.getByLabel('Item or assortment name',{exact:true}).inputValue(),'Recognized later','the poll must redraw with the result that landed');
 await page.getByRole('button',{name:'Discard'}).click();await page.waitForURL('**/box/3');
-assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);console.log('UI flows passed: search, household flag, login, manual entry/move, photo review/autosave/save-what-you-see, dictation across a pause, flag resolution, archive/restore and number reuse, draft held read-only while recognizing, owner note on upload and retry.');} finally {if(browser)await browser.close();server.kill();await new Promise(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',resolve);});fs.rmSync(directory,{recursive:true,force:true});}
+// Quick snap from the home screen: one control to the camera, recognition starts on arrival, and the
+// box is chosen while it runs. The analyze stub is held open so the filing happens mid-recognition.
+let release, snapContext=null;
+await page.route('**/api/drafts/*/analyze/',async route=>{
+  const req=route.request().postDataJSON();snapContext=req.context;
+  const id=route.request().url().split('/')[5];
+  await new Promise(done=>{release=done;});
+  const response=await page.request.post(`/api/drafts/${id}/`,{data:{revision:req.revision,entries:[{name:'Snapped thing',description:'from the camera',aliases:''}]},headers:{'X-CSRFToken':await (await page.request.get('/api/session/')).json().then(x=>x.csrfToken)}});
+  await route.fulfill({response});
+});
+await page.goto(baseURL);
+const chooser=page.waitForEvent('filechooser');
+await page.getByRole('button',{name:'Snap an item'}).click();
+await (await chooser).setFiles(path.join(directory,'photo.png'));
+await page.waitForURL('**/drafts/*analyze=1');
+await page.getByText('Recognizing…').first().waitFor();
+assert.equal(await page.getByRole('button',{name:'Choose a box to save'}).count(),1,'an unfiled draft cannot be saved yet');
+// Pick the box while the model is still reading, which is the point of the flow.
+await page.getByLabel('Which box does this go in?').selectOption('3');
+await page.getByRole('status').filter({hasText:'Filed under Box 3'}).waitFor();
+release();
+await page.getByLabel('Item or assortment name',{exact:true}).first().waitFor({timeout:15000});
+assert.equal(await page.getByLabel('Item or assortment name',{exact:true}).first().inputValue(),'Snapped thing','filing mid-run must not discard the recognition');
+await page.getByRole('button',{name:'Save to Box 3'}).click();
+await page.waitForURL('**/box/3');
+await page.getByRole('heading',{name:'Snapped thing',exact:true}).waitFor();
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);console.log('UI flows passed: search, household flag, login, manual entry/move, photo review/autosave/save-what-you-see, dictation across a pause, flag resolution, archive/restore and number reuse, draft held read-only while recognizing, owner note on upload and retry, snap-then-file.');} finally {if(browser)await browser.close();server.kill();await new Promise(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',resolve);});fs.rmSync(directory,{recursive:true,force:true});}
 })();
