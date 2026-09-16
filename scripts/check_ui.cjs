@@ -137,5 +137,16 @@ assert.equal(await page.getByLabel('Item or assortment name',{exact:true}).first
 await page.getByRole('button',{name:'Save to Box 3'}).click();
 await page.waitForURL('**/box/3');
 await page.getByRole('heading',{name:'Snapped thing',exact:true}).waitFor();
-assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);console.log('UI flows passed: search, household flag, login, manual entry/move, photo review/autosave/save-what-you-see, dictation across a pause, flag resolution, archive/restore and number reuse, draft held read-only while recognizing, owner note on upload and retry, snap-then-file.');} finally {if(browser)await browser.close();server.kill();await new Promise(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',resolve);});fs.rmSync(directory,{recursive:true,force:true});}
+// The talking flow carries a note too, kept separate from the words themselves.
+await page.goto(baseURL+'/box/3');
+await page.getByLabel('Box actions').click();await page.getByRole('button',{name:'Add items by talking'}).click();
+await page.getByLabel('What is in the box').fill('a bag of M4 screws and the grey USB hub');
+await page.getByLabel('Anything we should know? (optional)').fill('ignore the tangent about the shelf');
+await page.getByRole('button',{name:'Sort it out'}).click();
+await page.waitForURL('**/drafts/*');
+const spokenDraft=await page.evaluate(()=>JSON.parse(document.querySelector('#bootstrap').textContent).draft);
+assert.equal(spokenDraft.context,'ignore the tangent about the shelf','the talking flow must send the note');
+assert.equal(spokenDraft.transcript,'a bag of M4 screws and the grey USB hub','the note must not be folded into the transcript');
+await page.getByRole('button',{name:'Discard'}).click();await page.waitForURL('**/box/3');
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);console.log('UI flows passed: search, household flag, login, manual entry/move, photo review/autosave/save-what-you-see, dictation across a pause, flag resolution, archive/restore and number reuse, draft held read-only while recognizing, owner note on upload, talking and retry, snap-then-file.');} finally {if(browser)await browser.close();server.kill();await new Promise(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',resolve);});fs.rmSync(directory,{recursive:true,force:true});}
 })();

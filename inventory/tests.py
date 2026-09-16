@@ -606,6 +606,30 @@ class SpokenDraftTests(TestCase):
             self.assertEqual(self.client.post(f'/api/drafts/{pk}/save/',json.dumps({'revision':1}),content_type='application/json').status_code,200)
         self.assertEqual(Item.objects.get().name,'M4 screws')
 
+    def test_a_spoken_draft_carries_an_owner_note_separately_from_the_words(self):
+        # The transcript is a source of items; the note is guidance about them. They must arrive as
+        # two distinct messages, or "only the bin contents matter" becomes an entry called that.
+        buckets.clear()
+        owner=get_user_model().objects.create_user('noted-talker',is_staff=True)
+        Box.objects.create(number=9,category='Workshop')
+        self.client.force_login(owner)
+        created=self.client.post('/api/boxes/9/drafts/',{'transcript':'a bag of M4 screws and the grey USB hub',
+                                                         'context':'I ramble about the shelf too, only the bin matters'})
+        self.assertEqual(created.status_code,201)
+        pk=created.json()['id']
+        self.assertEqual(created.json()['context'],'I ramble about the shelf too, only the bin matters')
+        with patch('inventory.ai.complete',return_value=[{'name':'M4 screws','description':'','aliases':''}]) as call:
+            self.assertEqual(self.client.post(f'/api/drafts/{pk}/analyze/',json.dumps({'revision':0}),content_type='application/json').status_code,200)
+        sent=call.call_args[0][0][0]['content']
+        spoken=[p for p in sent[1:] if p['type']=='text' and 'spoken_description' in p['text']]
+        note=[p for p in sent[1:] if p['type']=='text' and 'owner_note' in p['text']]
+        self.assertEqual(len(spoken),1)
+        self.assertEqual(len(note),1)
+        self.assertEqual(json.loads(note[0]['text'])['owner_note'],'I ramble about the shelf too, only the bin matters')
+        # Wording has to work for a draft with no photos at all.
+        self.assertIn('what you are being given',sent[0]['text'])
+        self.assertNotIn('what is shown',sent[0]['text'])
+
     def test_a_draft_needs_photos_or_words(self):
         owner=get_user_model().objects.create_user('empty',is_staff=True)
         Box.objects.create(number=8,category='Workshop')

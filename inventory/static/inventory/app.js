@@ -139,12 +139,15 @@ function describeForm() {
     + `<div class="field"><label for="f-transcript">What is in the box</label><textarea id="f-transcript" name="transcript" maxlength="${MAX}" rows="8" placeholder="e.g. there's a bag of M3 screws in here, about a hundred, and the little grey USB hub…"></textarea></div>`
     + '<button type="button" id="dictate" class="mic-button"><span class="mic-dot" aria-hidden="true"></span><span id="dictate-label">Start talking</span></button>'
     + '<p id="dictate-status" class="hint" aria-live="polite">Type it out, or dictate and fix anything the microphone gets wrong.</p>'
+    + '<div class="field"><label for="f-context">Anything we should know? (optional)</label><textarea id="f-context" name="context" maxlength="1000" rows="2" placeholder="e.g. I ramble about the shelf too — only the bin contents matter"></textarea></div>'
+    + '<p class="hint">Separate from the description above: this steers how your words are read, and never becomes an entry of its own.</p>'
     + '<p class="hint">No photos needed. Your words are sent for AI recognition; the draft is kept until you save or discard it.</p>',
     'Sort it out', async f => {
       const transcript = f.get('transcript').trim();
       if (!transcript) throw Error('Say or type something about the box first.');
       const data = new FormData();
       data.append('transcript', transcript.slice(0, MAX));
+      data.append('context', (f.get('context') || '').trim().slice(0, 1000));
       const saved = await api(`/api/boxes/${state.box.number}/drafts/`, data);
       location.assign(`/drafts/${saved.id}`);
     });
