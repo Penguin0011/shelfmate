@@ -326,15 +326,15 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
 .duplicate{margin-top:8px;color:var(--red);font-size:13px;font-weight:500}
 .save-bar{background:var(--sheet);border-top:1px solid var(--ink);padding:18px 0 8px;margin-top:26px}
 .save-status{min-height:20px;color:var(--muted);letter-spacing:.14em}
-.keep-bar{
+.selection-bar{
   display:flex;align-items:center;gap:14px;flex-wrap:wrap;
   padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid var(--hair);
 }
-.keep-bar .check-label{
+.selection-bar .check-label{
   margin:0;gap:9px;white-space:nowrap;
   font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;
 }
-#keep-count{
+#draft-select-count{
   flex:1;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums;
   font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;
 }
