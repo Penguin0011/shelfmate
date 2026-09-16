@@ -1,0 +1,10 @@
+{
+  "name": "household-index-ui-checks",
+  "private": true,
+  "scripts": {
+    "test:ui": "node scripts/check_ui.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

@@ -7,6 +7,7 @@ Django/SQLite household inventory with owner-managed boxes, shared browsing and 
 ```sh
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+npm install
 cp .env.example .env  # only for a fresh setup; do not overwrite existing credentials
 chmod 600 .env
 # Set a random SECRET_KEY and DEBUG=1 in .env.
@@ -70,7 +71,7 @@ Provider processing is external even though the inventory is local. Local deleti
 .venv/bin/python manage.py makemigrations --check --dry-run
 .venv/bin/python manage.py cleanup_drafts
 .venv/bin/python scripts/check_concurrent_save.py
-node scripts/check_ui.cjs
+npm run test:ui
 # Explicit live requests using generated non-sensitive label images:
 .venv/bin/python manage.py check_ai --provider nvidia
 .venv/bin/python manage.py check_ai --provider openrouter
