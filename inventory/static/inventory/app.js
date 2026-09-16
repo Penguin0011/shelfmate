@@ -492,7 +492,7 @@ if(state.draft) {
   // Thresholds track the server's AI budget (settings.AI_TOTAL_TIMEOUT, 55 s); typical runs finish near 20 s.
   function stage(seconds,count){
     if(seconds<10)return count?`Sending ${count} photo${count===1?'':'s'} to the AI model…`:'Sending your description to the AI model…';
-    if(seconds<30)return count?'Reading the photos and naming what it sees…':'Working through what you said and naming the items…';
+    if(seconds<30)return count?'Analyzing the photos and naming what it sees…':'Working through what you said and naming the items…';
     if(seconds<50)return 'Still working. Busy models take longer — your draft is safe.';
     return 'Almost at the time limit. If this fails, your draft is kept.';
   }
@@ -504,7 +504,7 @@ if(state.draft) {
     modal('Recognize again',
       '<p class="hint">These suggestions will be replaced. Tell the AI what it got wrong and it will take that into account.</p>'
       + area('context','What was wrong? (optional)',draft.context||'',1000)
-      + '<p class="hint">Your photos are re-read from scratch — this note guides them, it does not become an entry.</p>',
+      + '<p class="hint">Your photos are analyzed again from scratch — this note guides them, it does not become an entry.</p>',
       'Recognize again', async f => { const note=(f.get('context')||'').trim().slice(0,1000); $('#dialog').close(); runAnalyze(note); });
   }
   async function runAnalyze(note){
