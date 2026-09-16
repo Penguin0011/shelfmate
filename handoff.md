@@ -232,5 +232,5 @@ Never commit `.env`, `data/`, or photos.
 4. **The repo has never been pushed anywhere.** No remote is configured. Note that `README.md` and
    `deploy/inventory.service` contain internal IPs, the VM's SSH user and the live hostname, so a
    public repo would expose the deployment topology. Private is the safe default.
-5. **Untracked in the working tree:** `Home Inventory mockup.html` (the original design reference)
-   and `.claude/launch.json` (dev-server config). Neither is committed.
+5. **Untracked in the working tree:** `Home Inventory mockup.html` (the original design reference).
+   It is not committed.
