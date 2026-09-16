@@ -1,9 +1,9 @@
 from itertools import groupby
 
 from django.shortcuts import render, get_object_or_404, redirect
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Prefetch
 from django.views.decorators.cache import never_cache
-from .models import Box, Draft, Flag
+from .models import Box, Draft, Flag, Item
 from .views import item_data
 from .draft_views import data as draft_data
 
@@ -13,8 +13,15 @@ def page(request, number=None, draft_id=None, screen='home'):
     owner = request.user.is_authenticated and request.user.is_active and request.user.is_staff
     if (screen in ('inbox', 'draft') or draft_id) and not owner:
         return redirect('/?login=1')
-    boxes = list(Box.objects.filter(retired=False).annotate(count=Count('items')).order_by('number'))
-    last_change = Box.objects.order_by('-updated_at').values_list('updated_at', flat=True).first() if screen == 'home' and number is None and draft_id is None else None
+    index = screen == 'home' and number is None and draft_id is None
+    listing = Box.objects.filter(retired=False).annotate(count=Count('items')).order_by('number')
+    if index:
+        # Only the index previews box contents, and it shows names. Deferring the rest keeps the
+        # ~500-char descriptions written for the search model out of a query that never renders them,
+        # and leaves every other screen on the plain queryset it had before.
+        listing = listing.prefetch_related(Prefetch('items', queryset=Item.objects.only('id', 'name', 'box')))
+    boxes = list(listing)
+    last_change = Box.objects.order_by('-updated_at').values_list('updated_at', flat=True).first() if index else None
     # The index groups boxes under their location; blank locations sort last under one heading.
     ordered = sorted(boxes, key=lambda b: (b.location.casefold() or '￿', b.number))
     groups = [{'location': rows[0].location or 'Unplaced', 'boxes': rows}

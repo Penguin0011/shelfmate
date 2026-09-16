@@ -104,6 +104,7 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
 /* ---------- page chrome ---------- */
 .skip{position:absolute;top:-100px;left:0;z-index:10;background:var(--ink);color:var(--sheet);padding:12px 18px;font-weight:600}
 .skip:focus{top:0}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 
 .session{display:flex;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted)}
 .session-dot{width:8px;height:8px;background:var(--red);flex:none}
@@ -210,6 +211,8 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
 .box-sub{font-size:14px;line-height:1.35;color:var(--muted);margin-top:2px}
 .count{font-size:14px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
 .box-number{display:block;margin-top:2px;font-size:10px;letter-spacing:.18em;color:var(--muted)}
+/* Index extras the phone has no room for; the desktop block below switches them on. */
+.box-preview,.box-changed{display:none}
 
 .archived-boxes summary{cursor:pointer;list-style:none}
 .archived-boxes summary::-webkit-details-marker{display:none}
@@ -391,6 +394,43 @@ dialog::backdrop{background:#000000d9}
   .heading-number{display:block;margin-top:8px}
   .select-bar>span:not(.select-actions){min-width:100%;order:3}
   .flag-row .title-line{align-items:flex-start}
+}
+
+/* ---------- desktop ---------- */
+/* Everything above is the phone layout and stays untouched: the wide screen is additive only. */
+@media(min-width:900px){
+  :root{--pad:44px;--gutter:76px}
+  .sheet{max-width:1180px}
+
+  /* An index row stops being a label and becomes an index: what is inside, and when it moved. */
+  .box-copy{flex:0 1 330px}
+  .box-preview{
+    display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;
+    flex:1.15 1 0;min-width:0;align-self:center;padding:11px 24px 13px 0;
+    color:var(--muted);font-size:14px;line-height:1.4;
+  }
+  .box-row:hover .box-preview{color:var(--prose)}
+  .box-changed{
+    display:flex;flex:none;align-items:center;justify-content:flex-end;
+    width:124px;padding-right:var(--pad);color:var(--muted);
+    font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+    font-variant-numeric:tabular-nums;white-space:nowrap;
+  }
+
+  /* The sheet got wider; prose did not. These three were only narrow by accident of the phone
+     width -- everywhere else the file already caps measure (.hero>p 60ch, .hint 62ch). */
+  .result-copy p,.flag-row>p,.flag-row blockquote{max-width:68ch}
+  /* The review screen is for proofreading recognized text, so its fields keep a readable measure
+     rather than stretching a one-line name field across the whole sheet. */
+  #draft-editor{max-width:820px}
+
+  /* Descriptions are written long for the search model. Given the width they can sit beside the
+     name instead of under it, so a box reads as a table rather than a stack. */
+  .item-copy{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);column-gap:34px;align-items:start}
+  .item-copy h2{grid-column:1;grid-row:1}
+  .item-copy>p{grid-column:2;grid-row:1;margin-top:3px}
+  .item-copy>p.aliases{grid-column:2;grid-row:2;margin-top:8px}
+  .inline-actions{grid-column:1;grid-row:2;align-self:end;margin-top:12px}
 }
 
 @media(prefers-reduced-motion:reduce){

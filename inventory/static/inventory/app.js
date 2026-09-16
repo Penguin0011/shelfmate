@@ -306,8 +306,10 @@ if(detailToggle&&itemList){
   const KEY='inventory-show-details';
   // A per-viewer reading preference, so localStorage rather than anything shared. Reads and writes
   // are guarded: private windows and blocked site data throw here rather than returning null.
-  let shown=false;
-  try{shown=localStorage.getItem(KEY)==='1';}catch{}
+  // A wide screen has room for the prose beside the name, so it starts open there and the phone
+  // still starts collapsed. Only a stored choice overrides the width -- never the other way round.
+  let shown=matchMedia('(min-width:900px)').matches;
+  try{const saved=localStorage.getItem(KEY);if(saved!==null)shown=saved==='1';}catch{}
   const apply=()=>{
     itemList.classList.toggle('compact',!shown);
     detailToggle.textContent=shown?'Hide details':'Show details';
