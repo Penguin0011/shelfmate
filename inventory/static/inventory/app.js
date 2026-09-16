@@ -14,7 +14,7 @@ async function api(url, data, method = 'POST') {
   let response;
   try { response = await fetch(url, options); } catch { throw Error('Connection lost. Your changes may not have reached the server. Try again.'); }
   let result; try { result = await response.json(); } catch { throw Error(response.status === 403 ? 'Your session has expired. Reload and sign in again.' : 'The server could not complete that request. Please try again.'); }
-  if (!response.ok) throw Object.assign(Error(result.error || 'Could not complete that request.'), {archived: result.archived === true});
+  if (!response.ok) throw Object.assign(Error(result.error || 'Could not complete that request.'), {status: response.status, archived: result.archived === true});
   if (result.csrfToken) csrf = result.csrfToken;
   return result;
 }
@@ -363,7 +363,9 @@ if(state.draft) {
     clearTimeout(poll);
     poll=setTimeout(async()=>{
       try{draft=await api(`/api/drafts/${draft.id}/`,undefined,'GET');rows=draft.entries.map(r=>({...r,selected:false}));dirty=false;draw();}
-      catch{drawAnalyzing();}
+      // Keep retrying a flaky connection, but a draft that is gone or no longer ours will never
+      // come back -- polling it every 3s for the life of an abandoned tab helps nobody.
+      catch(error){if(error.status>=400&&error.status<500){notice('This draft is no longer available. Reload the page.',true);return;}drawAnalyzing();}
     },3000);
   }
   function draw(){
