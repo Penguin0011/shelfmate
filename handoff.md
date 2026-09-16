@@ -168,6 +168,20 @@ quota while testing.
 
 ## Invariants that bite
 
+**A running analysis owns the draft's `revision`.** `ai_views.analyze` writes its result with
+`Draft.objects.filter(..., revision=draft.revision).update(...)` — the revision the *run started
+with*. Anything that bumps `revision` while a run is in flight makes that filter match zero rows,
+so the recognition is discarded and the 409 goes to a client that has usually navigated away. The
+owner sees nothing; the entries simply never appear.
+
+That is why two side paths deliberately do **not** bump it: the owner's note (`context`, written
+in the same `save()` as the analysis lock) and filing an unfiled draft
+(`draft_views.assign`, a bare `.update(box=...)`). Both are *expected* to happen mid-run — filing
+during recognition is the whole point of the home-screen snap flow. `drafts.update()` bumps
+revision because an entry edit genuinely should invalidate a result computed from older entries.
+If you add another field the owner can change while recognition runs, it belongs with `context`
+and `box`, not with `entries`.
+
 **`Invalid` subclasses `ValueError`.** Any `except ValueError` sweep silently swallows every
 specific error message raised inside it. This caused every photo upload failure — wrong format,
 too many megapixels, corrupt file — to report the same misleading "use JPEG or PNG". If you add a
