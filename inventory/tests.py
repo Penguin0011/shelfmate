@@ -43,7 +43,15 @@ class CoreTests(TestCase):
         self.assertEqual(self.post('/api/boxes/12/edit/', {'revision':0,'category':'Old','retired':True}).status_code, 200)
         self.assertContains(self.client.get('/'), 'Archived boxes')
         self.assertContains(self.client.get('/box/12'), 'Restore / reuse Box 12')
-        restored = self.post('/api/boxes/create/', {'number':12,'category':'New'})
+        # Reuse is deliberate, never a side effect: without an explicit restore the archived number
+        # is refused, and the refusal is marked so the client can offer the reuse rather than guess.
+        refused = self.post('/api/boxes/create/', {'number':12,'category':'New'})
+        self.assertEqual(refused.status_code, 409)
+        self.assertTrue(refused.json()['archived'])
+        self.assertEqual(Box.objects.get(number=12).category, 'Old', 'a refused reuse must change nothing')
+        self.assertTrue(Box.objects.get(number=12).retired)
+        self.assertEqual(self.post('/api/boxes/create/', {'number':12,'category':'New','restore':'yes'}).status_code, 400)
+        restored = self.post('/api/boxes/create/', {'number':12,'category':'New','restore':True})
         self.assertEqual(restored.status_code, 200)
         self.assertTrue(restored.json()['restored'])
         self.box.refresh_from_db()
@@ -51,7 +59,9 @@ class CoreTests(TestCase):
         self.assertFalse(self.box.retired)
         self.assertEqual(Flag.objects.get(pk=flag.pk).box_id, self.box.pk)
         self.assertEqual(Box.objects.filter(number=12).count(), 1)
+        # Now active again, so even an explicit restore must not silently take it over.
         self.assertEqual(self.post('/api/boxes/create/', {'number':12,'category':'Duplicate'}).status_code, 409)
+        self.assertEqual(self.post('/api/boxes/create/', {'number':12,'category':'Duplicate','restore':True}).status_code, 409)
         self.client.logout()
         self.assertNotContains(self.client.get('/'), 'Archived boxes')
     def test_suggested_box_number_skips_archived_numbers(self):

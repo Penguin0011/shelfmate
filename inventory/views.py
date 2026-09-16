@@ -68,6 +68,15 @@ def box_create(request):
         if box:
             if not box.retired or box.items.exists():
                 return JsonResponse({'error': 'An active box already uses this number'}, status=409)
+            restore = data.get('restore', False)
+            if type(restore) is not bool:
+                raise Invalid('Invalid restore value')
+            # Reviving an archived box re-points an NFC tag that is already stuck to a physical box,
+            # so it has to be asked for. A number that merely looks free -- a stale suggestion from
+            # a page loaded before the box was archived, a typo -- must never do it as a side effect.
+            if not restore:
+                return JsonResponse({'error': f'Box {number} is archived. Reuse it to keep its NFC tag, or pick another number.',
+                                     'archived': True}, status=409)
             box.category = category
             box.location = string(data, 'location', 120) if 'location' in data else box.location
             box.retired = False

@@ -14,7 +14,7 @@ async function api(url, data, method = 'POST') {
   let response;
   try { response = await fetch(url, options); } catch { throw Error('Connection lost. Your changes may not have reached the server. Try again.'); }
   let result; try { result = await response.json(); } catch { throw Error(response.status === 403 ? 'Your session has expired. Reload and sign in again.' : 'The server could not complete that request. Please try again.'); }
-  if (!response.ok) throw Error(result.error || 'Could not complete that request.');
+  if (!response.ok) throw Object.assign(Error(result.error || 'Could not complete that request.'), {archived: result.archived === true});
   if (result.csrfToken) csrf = result.csrfToken;
   return result;
 }
@@ -48,7 +48,14 @@ function boxForm(edit=false, restore=false) {
     const data={category:f.get('category'),location:f.get('location')};
     if(edit) { data.revision=box.revision; data.retired=restore?false:f.has('retired'); }
     else data.number=Number(f.get('number'));
-    const saved=await api(edit?`/api/boxes/${box.number}/edit/`:'/api/boxes/create/',data);
+    const url=edit?`/api/boxes/${box.number}/edit/`:'/api/boxes/create/';
+    let saved;
+    try { saved=await api(url,data); }
+    catch(error){
+      // The server refuses to revive an archived box unless asked; ask, then say so plainly.
+      if(!error.archived||!confirm(`Box ${data.number} is archived. Reuse it and its NFC tag? It keeps its number and URL.`))throw error;
+      saved=await api(url,{...data,restore:true});
+    }
     success(saved.restored||restore?'Box restored. Your NFC tag is ready to reuse.':'Box saved.',`/box/${edit?box.number:saved.number}`);
   });
 }
