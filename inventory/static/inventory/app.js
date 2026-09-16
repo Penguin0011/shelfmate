@@ -301,6 +301,25 @@ function bulkMoveForm() {
       success(`${items.length} ${items.length === 1 ? 'entry' : 'entries'} moved to Box ${box}.`, `/box/${box}`);
     });
 }
+const detailToggle=$('#detail-toggle'), itemList=$('#item-list');
+if(detailToggle&&itemList){
+  const KEY='inventory-show-details';
+  // A per-viewer reading preference, so localStorage rather than anything shared. Reads and writes
+  // are guarded: private windows and blocked site data throw here rather than returning null.
+  let shown=false;
+  try{shown=localStorage.getItem(KEY)==='1';}catch{}
+  const apply=()=>{
+    itemList.classList.toggle('compact',!shown);
+    detailToggle.textContent=shown?'Hide details':'Show details';
+    detailToggle.setAttribute('aria-pressed',shown?'true':'false');
+  };
+  apply();
+  detailToggle.addEventListener('click',()=>{
+    shown=!shown;
+    try{localStorage.setItem(KEY,shown?'1':'0');}catch{}
+    apply();
+  });
+}
 document.addEventListener('click', async e => {
   const button=e.target.closest('[data-action]');if(!button)return;
   const action=button.dataset.action;
@@ -389,7 +408,7 @@ if(state.draft) {
   function filingField(){
     const options=state.boxes.map(b=>`<option value="${b.number}" ${b.number===draft.box?'selected':''}>${esc(b.category)} · Box ${b.number}${b.location?` · ${esc(b.location)}`:''}</option>`).join('');
     return `<div class="field filing"><label for="f-draft-box">${draft.box?'Filed in':'Which box does this go in?'}</label><select id="f-draft-box"><option value="">Choose a box…</option>${options}</select></div>`
-      + `<div class="field filing"><label for="f-draft-note">Anything we should know? (optional)</label><textarea id="f-draft-note" maxlength="1000" rows="2" placeholder="e.g. mostly FPV drone parts">${esc(draft.context||'')}</textarea><p class="hint">Steers recognition — including the next pass if this one misses. Never becomes an entry.</p></div>`;
+      + `<div class="field filing"><label for="f-draft-note">Anything we should know? (optional)</label><textarea id="f-draft-note" maxlength="1000" rows="2" placeholder="e.g. mostly FPV drone parts">${esc(draft.context||'')}</textarea><p class="hint">Steers recognition.</p></div>`;
   }
   // A redraw mid-recognition would tear down the live progress panel and orphan its ticker, so while
   // busy we update in place instead. The draw that follows the result renders everything anyway.
@@ -438,7 +457,7 @@ if(state.draft) {
     // ponytail: the transcript is read-only here -- correct the entries it produced instead. Make it
     // editable only if re-recognizing from a fixed-up ramble turns out to be worth a round trip.
     const source=draft.photos.length?(draft.transcript?'photos and description':'photos'):'what you said';
-    editor.innerHTML=`${draft.photos.length?`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div>`:''}${draft.transcript?`<div class="transcript-note"><span class="eyebrow">What you said</span><p>${esc(draft.transcript)}</p></div>`:''}<button id="analyze" class="green wide">${rows.length?'Recognize again':`Recognize items from ${source}`}</button><p id="analyze-progress" class="analyzing" hidden aria-live="polite"></p>${filingField()}<p class="hint">You can also enter items manually. Review every suggestion before saving.</p><div id="draft-rows">${rows.map((r,n)=>`<section class="draft-row" data-row="${n}"><div class="draft-row-top"><label class="check-label"><input type="checkbox" data-select="${n}" ${r.selected?'checked':''}>Select</label><button type="button" class="text-button danger" data-remove="${n}">Remove</button></div><div class="field"><label for="name-${n}">Item or assortment name</label><input id="name-${n}" data-key="name" maxlength="200" value="${esc(r.name)}" required></div><div class="field"><label for="description-${n}">Description</label><textarea id="description-${n}" data-key="description" maxlength="2000">${esc(r.description)}</textarea></div><div class="field"><label for="aliases-${n}">Other names</label><input id="aliases-${n}" data-key="aliases" maxlength="1000" value="${esc(r.aliases)}"></div>${draft.duplicates.includes(n)?'<p class="duplicate">A matching name is already in this box. Review before adding.</p>':''}</section>`).join('')}</div><div class="actions wrap"><button id="add-row">+ Add an entry</button><button id="combine">Merge selected entries</button></div><div class="save-bar"><div class="selection-bar"><label class="check-label"><input type="checkbox" id="draft-select-all">Select all</label><span id="draft-select-count" aria-live="polite"></span></div><p id="save-status" class="save-status" role="status">${dirty?'Unsaved changes':'Draft saved'}</p><div class="actions"><button id="save-draft" class="primary" ${draft.box?'':'disabled'}>${draft.box?`Save to Box ${draft.box}`:'Choose a box to save'}</button><button id="cancel-draft">Discard</button></div><p class="hint">Everything listed here is saved — use Remove to drop an entry. Selecting is only for merging.${draft.photos.length?' Uploaded photos are deleted locally.':''}</p></div>`;
+    editor.innerHTML=`${draft.photos.length?`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div>`:''}${draft.transcript?`<div class="transcript-note"><span class="eyebrow">What you said</span><p>${esc(draft.transcript)}</p></div>`:''}<button id="analyze" class="green wide">${rows.length?'Recognize again':`Recognize items from ${source}`}</button><p id="analyze-progress" class="analyzing" hidden aria-live="polite"></p>${filingField()}<div id="draft-rows">${rows.map((r,n)=>`<section class="draft-row" data-row="${n}"><div class="draft-row-top"><label class="check-label"><input type="checkbox" data-select="${n}" ${r.selected?'checked':''}>Select</label><button type="button" class="text-button danger" data-remove="${n}">Remove</button></div><div class="field"><label for="name-${n}">Item or assortment name</label><input id="name-${n}" data-key="name" maxlength="200" value="${esc(r.name)}" required></div><div class="field"><label for="description-${n}">Description</label><textarea id="description-${n}" data-key="description" maxlength="2000">${esc(r.description)}</textarea></div><div class="field"><label for="aliases-${n}">Other names</label><input id="aliases-${n}" data-key="aliases" maxlength="1000" value="${esc(r.aliases)}"></div>${draft.duplicates.includes(n)?'<p class="duplicate">A matching name is already in this box. Review before adding.</p>':''}</section>`).join('')}</div><div class="actions wrap"><button id="add-row">+ Add an entry</button><button id="combine">Merge selected entries</button></div><div class="save-bar"><div class="selection-bar"><label class="check-label"><input type="checkbox" id="draft-select-all">Select all</label><span id="draft-select-count" aria-live="polite"></span></div><p id="save-status" class="save-status" role="status">${dirty?'Unsaved changes':'Draft saved'}</p><div class="actions"><button id="save-draft" class="primary" ${draft.box?'':'disabled'}>${draft.box?`Save to Box ${draft.box}`:'Choose a box to save'}</button><button id="cancel-draft">Discard</button></div><p class="hint">Everything listed here is saved — use Remove to drop an entry. Selecting is only for merging.${draft.photos.length?' Uploaded photos are deleted locally.':''}</p></div>`;
     $('#analyze').onclick=analyze;$('#add-row').onclick=()=>{rows.push({name:'',description:'',aliases:'',selected:false});dirty=true;epoch++;draw();$(`#name-${rows.length-1}`).focus();};
     $('#combine').onclick=()=>{const selected=rows.filter(r=>r.selected);if(selected.length<2){status('Select at least two entries to merge them.',true);return;}if(selected.length>2&&!confirm(`Merge ${selected.length} selected entries into a single item? This cannot be undone.`))return;const first=rows.findIndex(r=>r.selected);const combined={name:selected.map(r=>r.name).join(' + ').slice(0,200),description:selected.map(r=>r.description).filter(Boolean).join('\n').slice(0,2000),aliases:selected.map(r=>r.aliases).filter(Boolean).join(', ').slice(0,1000),selected:true};rows=rows.filter((r,n)=>!r.selected||n===first).map(r=>r.selected?combined:r);changed();draw();};
     $('#save-draft').onclick=saveFinal;$('#cancel-draft').onclick=cancel;

@@ -267,6 +267,9 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
 .item-copy h2{font-size:19px;font-weight:500;letter-spacing:-.02em;line-height:1.15}
 .item-copy p{font-size:14px;line-height:1.45;color:var(--muted);margin-top:5px;text-wrap:pretty}
 .item-copy p.aliases{margin-top:6px;color:var(--prose);font-style:italic;line-height:1.4}
+/* Descriptions are written long on purpose, for the search model to match against. That makes the
+   list unbrowsable, so it collapses to names and the reader opts into the prose. */
+.item-list.compact .item-copy p{display:none}
 .item-row.picked{background:var(--raised)}
 .item-row:target{background:#1d1d1b}
 .item-row:target .row-number{color:var(--red)}

@@ -165,5 +165,18 @@ const spokenDraft=await page.evaluate(()=>JSON.parse(document.querySelector('#bo
 assert.equal(spokenDraft.context,'ignore the tangent about the shelf','the talking flow must send the note');
 assert.equal(spokenDraft.transcript,'a bag of M4 screws and the grey USB hub','the note must not be folded into the transcript');
 await page.getByRole('button',{name:'Discard'}).click();await page.waitForURL('**/box/3');
-assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);console.log('UI flows passed: search, household flag, login, manual entry/move, photo review/autosave/save-what-you-see, dictation across a pause, flag resolution, archive/restore and number reuse, draft held read-only while recognizing, owner note on upload, talking and retry, snap-then-file.');} finally {if(browser)await browser.close();server.kill();await new Promise(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',resolve);});fs.rmSync(directory,{recursive:true,force:true});}
+// Box contents browse as names by default; the long descriptions are opt-in and the choice sticks.
+await page.goto(baseURL+'/box/3');
+const blurb=page.locator('.item-row').first().locator('.item-copy p').first();
+await page.getByRole('heading',{name:'M3 screw, nut and washer assortment'}).waitFor();
+assert.equal(await blurb.isVisible(),false,'descriptions start hidden so a box can be skimmed');
+await page.getByRole('button',{name:'Show details'}).click();
+assert.equal(await blurb.isVisible(),true);
+await page.reload();
+await page.getByRole('heading',{name:'M3 screw, nut and washer assortment'}).waitFor();
+assert.equal(await page.locator('.item-row').first().locator('.item-copy p').first().isVisible(),true,'the choice must survive a reload');
+assert.equal(await page.getByRole('button',{name:'Hide details'}).count(),1);
+await page.getByRole('button',{name:'Hide details'}).click();
+assert.equal(await page.locator('.item-row').first().locator('.item-copy p').first().isVisible(),false);
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);console.log('UI flows passed: search, household flag, login, manual entry/move, photo review/autosave/save-what-you-see, dictation across a pause, flag resolution, archive/restore and number reuse, draft held read-only while recognizing, owner note on upload, talking and retry, snap-then-file, skimmable box contents.');} finally {if(browser)await browser.close();server.kill();await new Promise(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',resolve);});fs.rmSync(directory,{recursive:true,force:true});}
 })();
