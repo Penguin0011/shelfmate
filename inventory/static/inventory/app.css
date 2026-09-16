@@ -201,8 +201,32 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
 .archived-boxes[open] summary::after{background:var(--red);border-color:var(--red)}
 
 .index-footer{
+  border-top:1px solid var(--ink);
+}
+.summary-head{
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:9px var(--pad);border-bottom:3px solid var(--ink);
+  color:var(--muted);font-size:11px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;
+}
+.summary-grid{display:grid;grid-template-columns:1fr 1.12fr .9fr;border-bottom:1px solid var(--hair)}
+.summary-stat{min-width:0;padding:18px var(--pad) 21px;border-right:1px solid var(--hair)}
+.summary-stat:last-child{border-right:0}
+.summary-label{
+  display:block;margin-bottom:8px;color:var(--muted);
+  font-size:11px;font-weight:600;letter-spacing:.17em;text-transform:uppercase;
+}
+.summary-value{
+  display:block;font-size:clamp(34px,6vw,56px);font-weight:700;letter-spacing:-.03em;
+  line-height:.92;text-transform:uppercase;font-variant-numeric:tabular-nums;
+}
+.summary-stat.flags .summary-value{color:var(--red)}
+.summary-rail{display:flex;gap:4px;padding:17px var(--pad);border-bottom:1px solid var(--hair)}
+.summary-rail i{height:14px;background:var(--ink)}
+.summary-rail i:nth-child(1){flex:1}.summary-rail i:nth-child(2){flex:2.2;background:var(--muted)}
+.summary-rail i:nth-child(3){flex:.65;background:var(--red)}.summary-rail i:nth-child(4){flex:1.55;background:var(--hair)}
+.summary-utility{
   display:flex;align-items:center;justify-content:space-between;gap:14px 24px;flex-wrap:wrap;
-  padding:18px var(--pad) 20px;border-top:1px solid var(--ink);
+  padding:14px var(--pad) 16px;
 }
 .footer-note{font-size:13px;line-height:1.6;color:var(--muted)}
 
@@ -331,6 +355,13 @@ dialog::backdrop{background:#000000d9}
   .topbar>a:first-child{margin-right:auto}
   .box-row .row-number{font-size:19px}
   .box-category{font-size:19px}
+  .summary-head{padding:8px 18px;font-size:9px;letter-spacing:.15em}
+  .summary-grid{grid-template-columns:1fr 1.25fr .75fr}
+  .summary-stat{padding:14px 12px 16px}
+  .summary-label{font-size:9px;letter-spacing:.14em}
+  .summary-value{font-size:clamp(28px,8vw,36px)}
+  .summary-rail{padding:14px 18px}.summary-rail i{height:11px}
+  .summary-utility{align-items:flex-start;flex-direction:column;padding:13px 18px 15px}
   .actions{gap:8px}
   .actions button{padding:12px 10px;font-size:14px}
   .history-row{flex-direction:column;gap:5px}
