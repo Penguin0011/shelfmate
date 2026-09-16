@@ -1,3 +1,5 @@
+from itertools import groupby
+
 from django.shortcuts import render, get_object_or_404, redirect
 from django.db.models import Count
 from django.views.decorators.cache import never_cache
@@ -12,6 +14,10 @@ def page(request, number=None, draft_id=None, screen='home'):
     if (screen in ('inbox', 'draft') or draft_id) and not owner:
         return redirect('/?login=1')
     boxes = list(Box.objects.filter(retired=False).annotate(count=Count('items')).order_by('number'))
+    # The index groups boxes under their location; blank locations sort last under one heading.
+    ordered = sorted(boxes, key=lambda b: (b.location.casefold() or '￿', b.number))
+    groups = [{'location': rows[0].location or 'Unplaced', 'boxes': rows}
+              for rows in (list(g) for _, g in groupby(ordered, key=lambda b: b.location.casefold()))]
     box = get_object_or_404(Box, number=number) if number is not None else None
     draft = get_object_or_404(Draft, pk=draft_id, owner=request.user) if draft_id else None
     if draft:
@@ -26,7 +32,7 @@ def page(request, number=None, draft_id=None, screen='home'):
                  'box': {'number': box.number, 'category': box.category, 'location': box.location, 'revision': box.revision, 'retired': box.retired} if box else None,
                  'items': [item_data(i) for i in items], 'draft': draft_data(draft) if draft else None}
     return render(request, 'inventory/page.html', {
-        'screen': screen, 'owner': owner, 'boxes': boxes, 'box': box, 'items': items,
+        'screen': screen, 'owner': owner, 'boxes': boxes, 'groups': groups, 'box': box, 'items': items,
         'archived_boxes': Box.objects.filter(retired=True) if owner else [],
         'total': sum(b.count for b in boxes), 'open_count': flags.filter(status='open').count(),
         'open_flags': flags.filter(status='open') if screen == 'inbox' else [],

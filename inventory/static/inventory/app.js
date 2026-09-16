@@ -233,7 +233,7 @@ async function runSearch(ai=false) {
     const result=ai?await api('/api/search/ai/',{question:q}):await api(`/api/search/?q=${encodeURIComponent(q)}`,undefined,'GET');
     if(version!==searchVersion)return;
     const matches=result.matches||result.items;
-    $('#result-list').innerHTML=matches.length?matches.map(i=>`<a class="result-row" href="/box/${i.box}#item-${i.id}">${ai?'<span class="match-label">Possible match</span>':''}<h3>${esc(i.name)}</h3><span class="box-number">${esc(i.category)} · Box ${i.box}${i.location?` · ${esc(i.location)}`:''}</span><p>${esc(ai?i.explanation:i.description)}</p></a>`).join(''):'<div class="empty"><h3>No matching entries.</h3><p>Try a different name, or ask the owner to check.</p></div>';
+    $('#result-list').innerHTML=matches.length?matches.map((i,n)=>`<a class="result-row" href="/box/${i.box}#item-${i.id}"><span class="row-number" aria-hidden="true">${String(n+1).padStart(2,'0')}</span><div class="result-copy">${ai?'<span class="match-label">Possible match</span>':''}<h3>${esc(i.name)}</h3><span class="box-number">${i.location?`${esc(i.location)} · `:''}Box ${i.box} / ${esc(i.category)}</span><p>${esc(ai?i.explanation:i.description)}</p></div></a>`).join(''):'<div class="empty"><h3>No matching entries.</h3><p>Try a different name, or ask the owner to check.</p></div>';
     history.replaceState(null,'',`/?q=${encodeURIComponent(q)}`);
   } catch(error){if(version===searchVersion){$('#result-list').innerHTML='';const p=document.createElement('p');p.className='pad';p.textContent=error.message;$('#result-list').append(p);}}
   finally{if(ai)$('#ask-ai').disabled=false;}
@@ -242,7 +242,7 @@ if($('#search-form')) {
   $('#search-form').addEventListener('submit',e=>{e.preventDefault();runSearch();});$('#ask-ai').onclick=()=>runSearch(true);
   $('#clear-search').onclick=()=>{searchVersion++;$('#search-results').hidden=true;$('#query').value='';history.replaceState(null,'','/');$('#query').focus();};
   const q=new URLSearchParams(location.search).get('q');if(q){$('#query').value=q;runSearch();}
-  if(state.owner)api('/api/drafts/',undefined,'GET').then(r=>{if(r.drafts.length){$('#draft-list').hidden=false;$('#draft-links').innerHTML=r.drafts.map(d=>`<a class="box-row" href="/drafts/${d.id}"><span class="box-category">Continue adding to Box ${d.box}</span><span class="arrow">↗</span></a>`).join('');}}).catch(e=>notice(e.message,true));
+  if(state.owner)api('/api/drafts/',undefined,'GET').then(r=>{if(r.drafts.length){$('#draft-list').hidden=false;$('#draft-links').innerHTML=r.drafts.map(d=>`<a class="box-row" href="/drafts/${d.id}"><span class="row-number" aria-hidden="true">${String(d.box).padStart(2,'0')}</span><span class="box-copy"><span class="box-category">Continue adding</span><span class="box-sub">Box ${d.box} · unfinished draft</span></span></a>`).join('');}}).catch(e=>notice(e.message,true));
 }
 
 // Keep revisioned draft writes in order. A lost response leaves edits visible for recovery.
