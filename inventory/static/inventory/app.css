@@ -219,6 +219,8 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
   display:block;font-size:clamp(34px,6vw,56px);font-weight:700;letter-spacing:-.03em;
   line-height:.92;text-transform:uppercase;font-variant-numeric:tabular-nums;
 }
+.summary-date time{display:flex;align-items:baseline;gap:8px}
+.summary-month{color:var(--muted);font-size:.42em;font-weight:600;letter-spacing:.14em}
 .summary-stat.flags .summary-value{color:var(--red)}
 .summary-rail{display:flex;gap:4px;padding:17px var(--pad);border-bottom:1px solid var(--hair)}
 .summary-rail i{height:14px;background:var(--ink)}

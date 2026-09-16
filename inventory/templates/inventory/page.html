@@ -14,7 +14,7 @@
   <div class="summary-head"><span>House totals</span><span>{{ boxes|length }} box{{ boxes|length|pluralize:"es" }} indexed</span></div>
   <div class="summary-grid">
     <div class="summary-stat"><span class="summary-label">Entries</span><strong class="summary-value">{{ total }}</strong></div>
-    <div class="summary-stat"><span class="summary-label">Last change</span><strong class="summary-value">{% if last_change %}<time datetime="{{ last_change|date:'c' }}">{{ last_change|date:"dM" }}</time>{% else %}—{% endif %}</strong></div>
+    <div class="summary-stat"><span class="summary-label">Last change</span><strong class="summary-value summary-date">{% if last_change %}<time datetime="{{ last_change|date:'c' }}"><span class="summary-day">{{ last_change|date:"d" }}</span><span class="summary-month">{{ last_change|date:"M" }}</span></time>{% else %}—{% endif %}</strong></div>
     <div class="summary-stat{% if owner %} flags{% endif %}"><span class="summary-label">{% if owner %}Flags{% else %}Boxes{% endif %}</span><strong class="summary-value">{% if owner %}{{ open_count }}{% else %}{{ boxes|length }}{% endif %}</strong></div>
   </div>
   <div class="summary-rail" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
