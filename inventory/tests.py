@@ -26,7 +26,7 @@ class CoreTests(TestCase):
     def test_flags_survive_deletion(self):
         item = Item.objects.create(box=self.box, name='Screws')
         self.assertEqual(self.post('/api/boxes/12/flags/', {'item': item.pk, 'reason': 'missing'}).status_code, 201)
-        self.assertEqual(self.client.get('/api/flags/').status_code, 403)
+        self.assertEqual(self.post('/api/flags/1/', {'status':'resolved'}).status_code, 403)
         item.delete()
         self.assertEqual(Flag.objects.get().item_name, 'Screws')
         self.assertIsNone(Flag.objects.get().item_id)
@@ -438,7 +438,6 @@ class InterfaceTests(TestCase):
         self.assertContains(result,'&lt;script&gt;')
         self.assertNotContains(result,'<script>alert(1)</script>')
         self.assertNotContains(result,'data-action="edit-box"')
-        self.assertEqual(self.client.get('/api/boxes/12/').json()['number'],12)
         self.assertEqual(self.client.get('/flags').status_code,302)
     def test_owner_pages_and_empty_index(self):
         self.assertContains(self.client.get('/'),'A fresh start.')

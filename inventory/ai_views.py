@@ -115,7 +115,7 @@ def search(request):
     for match in proposed:
         pk=match['id']
         if pk in current and pk in allowed and pk not in seen:
-            results.append({**item_data(current[pk]), 'explanation':match['explanation'], 'label':'Possible match'})
+            results.append({**item_data(current[pk]), 'explanation':match['explanation']})
             seen.add(pk)
     if proposed and not results:
         return JsonResponse({'error':'AI returned unavailable items; use local search'},status=502)

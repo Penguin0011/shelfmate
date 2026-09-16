@@ -27,9 +27,7 @@ All request/response bodies are JSON except multipart photo uploads. Fetch `GET 
 | GET `/api/session/` | Household | CSRF token and owner status |
 | POST `/api/login/` | Household | `username`, `password` |
 | POST `/api/logout/` | Household | End session |
-| GET `/api/boxes/` | Household | Active box numbers/categories/revisions |
 | GET `/box/12` | Household | Server-rendered box page at its permanent NFC URL |
-| GET `/api/boxes/12/` | Household | Flat contents and current box details as JSON |
 | GET `/api/search/?q=M3` | Household | Local name/description/alias search |
 | POST `/api/search/ai/` | Household | `question`; possible matches with current box locations |
 | POST `/api/boxes/create/` | Owner | Positive `number`, `category`; restores an archived number (200), creates a fresh number (201), rejects an active duplicate (409) |
@@ -38,7 +36,6 @@ All request/response bodies are JSON except multipart photo uploads. Fetch `GET 
 | POST `/api/items/7/edit/` | Owner | Same fields plus `revision`, or `revision` and `delete:true` |
 | POST `/api/items/bulk/` | Owner | Move or delete selected items with per-item revisions |
 | POST `/api/boxes/12/flags/` | Household | `reason`: missing/taken/moved/other; optional `item` ID, `note`, `reporter` |
-| GET `/api/flags/` | Owner | Inbox/history and unresolved count |
 | POST `/api/flags/7/` | Owner | `status`: resolved/dismissed |
 | POST `/api/boxes/12/drafts/` | Owner | Multipart repeated `photos` files |
 | GET `/api/drafts/` | Owner | Recoverable open drafts |

@@ -20,7 +20,7 @@ def page(request, number=None, draft_id=None, screen='home'):
         screen = 'box'
     flags = Flag.objects.select_related('box').order_by('-created_at') if owner else Flag.objects.none()
     items = list(box.items.select_related('box')) if box else []
-    bootstrap = {'owner': bool(owner), 'screen': screen,
+    bootstrap = {'owner': bool(owner),
                  'locations': sorted({b.location for b in boxes if b.location}, key=str.casefold) if owner else [],
                  'boxes': [{'number': b.number, 'category': b.category, 'location': b.location} for b in boxes],
                  'box': {'number': box.number, 'category': box.category, 'location': box.location, 'revision': box.revision, 'retired': box.retired} if box else None,

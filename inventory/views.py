@@ -46,17 +46,6 @@ def health(request):
 
 
 @endpoint(['GET'])
-def boxes(request):
-    return JsonResponse({'boxes': list(Box.objects.filter(retired=False).values('number', 'category', 'location', 'revision'))})
-
-
-@endpoint(['GET'])
-def box_detail(request, number):
-    box = get_object_or_404(Box, number=number)
-    return JsonResponse({'number': box.number, 'category': box.category, 'location': box.location, 'retired': box.retired, 'revision': box.revision, 'items': [item_data(i) for i in box.items.select_related('box')]})
-
-
-@endpoint(['GET'])
 def search(request):
     query = request.GET.get('q', '').strip()
     if len(query) > 500:
@@ -190,11 +179,6 @@ def flag_create(request, number):
         item = get_object_or_404(Item, pk=integer(data, 'item'), box=box) if data.get('item') is not None else None
         flag = Flag.objects.create(box=box, item=item, item_name=item.name if item else '', reason=reason, note=string(data, 'note', 2000), reporter=string(data, 'reporter', 100))
     return JsonResponse({'id': flag.pk}, status=201)
-
-
-@endpoint(['GET'], owner=True)
-def flags(request):
-    return JsonResponse({'unresolved': Flag.objects.filter(status='open').count(), 'flags': list(Flag.objects.order_by('-created_at').values('id', 'box__number', 'item_id', 'item_name', 'reason', 'note', 'reporter', 'status', 'created_at', 'resolved_at'))})
 
 
 @endpoint(['POST'], owner=True)
