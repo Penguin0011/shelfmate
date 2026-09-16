@@ -178,5 +178,11 @@ assert.equal(await page.locator('.item-row').first().locator('.item-copy p').fir
 assert.equal(await page.getByRole('button',{name:'Hide details'}).count(),1);
 await page.getByRole('button',{name:'Hide details'}).click();
 assert.equal(await page.locator('.item-row').first().locator('.item-copy p').first().isVisible(),false);
-assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);console.log('UI flows passed: search, household flag, login, manual entry/move, photo review/autosave/save-what-you-see, dictation across a pause, flag resolution, archive/restore and number reuse, draft held read-only while recognizing, owner note on upload, talking and retry, snap-then-file, skimmable box contents.');} finally {if(browser)await browser.close();server.kill();await new Promise(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',resolve);});fs.rmSync(directory,{recursive:true,force:true});}
+// A favicon that 404s looks identical to no favicon, so check it is linked *and* served.
+const iconHref=await page.locator('link[rel="icon"]').getAttribute('href');
+assert.ok(iconHref&&iconHref.endsWith('.svg'),'the page must link an svg icon');
+const icon=await page.request.get(new URL(iconHref,baseURL).href);
+assert.equal(icon.status(),200,'the icon must actually be served');
+assert.match(icon.headers()['content-type']||'',/svg/);
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);console.log('UI flows passed: search, household flag, login, manual entry/move, photo review/autosave/save-what-you-see, dictation across a pause, flag resolution, archive/restore and number reuse, draft held read-only while recognizing, owner note on upload, talking and retry, snap-then-file, skimmable box contents, favicon served.');} finally {if(browser)await browser.close();server.kill();await new Promise(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',resolve);});fs.rmSync(directory,{recursive:true,force:true});}
 })();
