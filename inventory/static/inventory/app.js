@@ -185,10 +185,11 @@ function uploadForm() {
   const staged=[], urls=[];
   const identity=f=>`${f.name}:${f.size}:${f.lastModified}`;
   const total=()=>staged.reduce((sum,s)=>sum+s.file.size,0);
-  modal('Add from photos', '<p>Lay the items out so each is visible. Include labels where you can.</p><div class="field"><label for="f-photos">Choose photos or take a photo</label><input id="f-photos" name="photos" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple></div><div id="staged-photos" class="staged-grid"></div><p id="staged-note" class="hint"></p><p class="hint">Up to 4 photos. Straight from the camera is fine — HEIC and full-resolution shots are shrunk here before upload, so they arrive small and fast. Add them together or a few at a time; each pick joins the batch below. Photos are sent for AI recognition and deleted locally after you save or discard the draft.</p>', 'Upload & review', async () => {
+  modal('Add from photos', '<p>Lay the items out so each is visible. Include labels where you can.</p><div class="field"><label for="f-photos">Choose photos or take a photo</label><input id="f-photos" name="photos" type="file" accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif" multiple></div><div id="staged-photos" class="staged-grid"></div><p id="staged-note" class="hint"></p><div class="field"><label for="f-context">Anything we should know? (optional)</label><textarea id="f-context" name="context" maxlength="1000" rows="2" placeholder="e.g. mostly FPV drone parts — the loose bags are spare motor screws"></textarea></div><p class="hint">A line of context makes recognition noticeably better. It steers what the AI looks for; it never becomes an entry on its own.</p><p class="hint">Up to 4 photos. Straight from the camera is fine — HEIC and full-resolution shots are shrunk here before upload, so they arrive small and fast. Add them together or a few at a time; each pick joins the batch below. Photos are sent for AI recognition and deleted locally after you save or discard the draft.</p>', 'Upload & review', async f => {
     if(!staged.length) throw Error('Choose at least one photo first.');
     const data=new FormData();
     staged.forEach(s=>data.append('photos',s.file));
+    data.append('context',(f.get('context')||'').trim().slice(0,1000));
     const saved=await api(`/api/boxes/${state.box.number}/drafts/`,data);
     location.assign(`/drafts/${saved.id}`);
   });
@@ -410,9 +411,19 @@ if(state.draft) {
     if(seconds<50)return 'Still working. Busy models take longer — your draft is safe.';
     return 'Almost at the time limit. If this fails, your draft is kept.';
   }
-  async function analyze(){
+  // A retry is where the owner knows what went wrong, so ask instead of a bare yes/no confirm. The
+  // modal submit IS the replacement confirmation the server demands, so it still sends replace.
+  function analyze(){
     if(busy)return;
-    if(rows.length&&!confirm('Replace these entries with fresh AI suggestions?'))return;
+    if(!rows.length)return runAnalyze();
+    modal('Recognize again',
+      '<p class="hint">These suggestions will be replaced. Tell the AI what it got wrong and it will take that into account.</p>'
+      + area('context','What was wrong? (optional)',draft.context||'',1000)
+      + '<p class="hint">Your photos are re-read from scratch — this note guides them, it does not become an entry.</p>',
+      'Recognize again', async f => { const note=(f.get('context')||'').trim().slice(0,1000); $('#dialog').close(); runAnalyze(note); });
+  }
+  async function runAnalyze(note){
+    if(busy)return;
     disable(true);
     const button=$('#analyze'), panel=$('#analyze-progress'), label=button.textContent;
     const count=draft.photos.length, started=Date.now();
@@ -422,7 +433,9 @@ if(state.draft) {
     panel.scrollIntoView({block:'center',behavior:'smooth'});
     try{
       if(dirty)await persist();
-      draft=await api(`/api/drafts/${draft.id}/analyze/`,{revision:draft.revision,replace:rows.length>0});
+      const payload={revision:draft.revision,replace:rows.length>0};
+      if(note!==undefined)payload.context=note;
+      draft=await api(`/api/drafts/${draft.id}/analyze/`,payload);
       rows=draft.entries.map(r=>({...r,selected:false}));
       dirty=false;
       clearInterval(ticker);

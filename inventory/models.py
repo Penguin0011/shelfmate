@@ -33,6 +33,9 @@ class Draft(models.Model):
     entries = models.JSONField(default=list)
     files = models.JSONField(default=list)
     transcript = models.CharField(max_length=5000, blank=True, default="")
+    # What the owner told us about the material, to steer recognition. Kept apart from transcript:
+    # a transcript is a source of items, this is guidance about them and must never become one.
+    context = models.CharField(max_length=1000, blank=True, default="")
     receipt = models.JSONField(default=list)
     revision = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
