@@ -288,7 +288,7 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
 .draft-row textarea{min-height:88px}
 .draft-row input{padding:10px 12px}
 .duplicate{margin-top:8px;color:var(--red);font-size:13px;font-weight:500}
-.save-bar{position:sticky;bottom:0;background:var(--sheet);border-top:1px solid var(--ink);padding:14px 0 8px;margin-top:22px}
+.save-bar{background:var(--sheet);border-top:1px solid var(--ink);padding:18px 0 8px;margin-top:26px}
 .save-status{min-height:20px;color:var(--muted);letter-spacing:.14em}
 .keep-bar{
   display:flex;align-items:center;gap:14px;flex-wrap:wrap;
