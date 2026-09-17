@@ -257,6 +257,26 @@ class DraftTests(TestCase):
         expired.refresh_from_db()
         self.assertEqual(expired.state, 'expired')
         self.assertFalse(drafts.directory(expired).exists())
+    def test_closed_drafts_clear_source_text_and_keep_saved_receipts(self):
+        for action in ['save', 'cancel', 'expire', 'previously_closed']:
+            with self.subTest(action=action):
+                draft = drafts.upload(self.owner, self.box, [], 'private transcript', 'private note')
+                if action == 'save':
+                    drafts.update(draft.pk, self.owner, 0, [{'name': 'Reviewed item'}])
+                    receipt = drafts.save(draft.pk, self.owner, 1)
+                    self.assertEqual(drafts.save(draft.pk, self.owner, 1), receipt)
+                elif action == 'cancel':
+                    drafts.cancel(draft.pk, self.owner)
+                elif action == 'expire':
+                    Draft.objects.filter(pk=draft.pk).update(expires_at=timezone.now()-timedelta(seconds=1))
+                else:
+                    Draft.objects.filter(pk=draft.pk).update(state='saved', receipt=[123])
+                drafts.cleanup()
+                draft.refresh_from_db()
+                self.assertEqual((draft.transcript, draft.context), ('', ''))
+                if action == 'previously_closed':
+                    self.assertEqual(draft.receipt, [123])
+
     def test_photo_access_and_validation(self):
         draft = self.make_draft()
         url = f'/api/drafts/{draft.pk}/photos/0/'
@@ -305,12 +325,12 @@ class AITests(TestCase):
                       '```json \n[{"id": 1}]\n```', '  ```json\n[{"id": 1}]\n```  ',
                       '[{"id": 1}]']:
             self.assertEqual(reply(fence), [{'id': 1}], 'did not unwrap %r' % fence)
-        # Observed in production: glm closes the array and then adds a caveat. json.loads rejects
-        # trailing text outright, so the whole answer was discarded and re-asked of Gemini.
-        self.assertEqual(reply('[{"id": 1}]\n\nNote: the inventory contains no dedicated clamps.'),
-            [{'id': 1}], 'a trailing remark must not cost the matches in front of it')
-        self.assertEqual(reply('```json\n[{"id": 1}]\n```\n\nNote: improvised options only.'),
-            [{'id': 1}])
+        # Commentary can qualify the whole answer and must not be silently dropped.
+        for text in ['[{"id": 1}]\nNote: improvised options only.',
+                     '```json\n[{"id": 1}]\n```\nNote: not confirmed.',
+                     '[] []', '```json\n[]']:
+            with self.assertRaises(ai.Retryable):
+                reply(text)
         # Leading prose is different: the reply no longer starts with what we asked for, and mining
         # the middle of a message for something parseable is worse than failing over.
         with self.assertRaises(ai.Retryable):
@@ -450,6 +470,7 @@ class AITests(TestCase):
         with self.assertRaises(Invalid):
             matches({'not': 'a list'})
         self.assertEqual(matches([]), [], 'an honest empty answer is not an error')
+        self.assertEqual(matches(['junk'] * 20 + [{'id': 3}]), [{'id': 3, 'explanation': ''}])
     def test_search_rejects_hallucination_and_reloads_location(self):
         buckets.clear()
         box=Box.objects.create(number=1,category='PC')
@@ -495,6 +516,29 @@ class TransportTests(TestCase):
         with self.assertRaises(ai.Refused): self.run_response(200,{'choices':[{'message':{'content':'x'},'finish_reason':'content_filter'}]})
         result,_=self.run_response(200,{'choices':[{'message':{'content':'```json\n[]\n```'}}]})
         self.assertEqual(result,[])
+    def test_malformed_envelopes_fall_back_instead_of_crashing(self):
+        for payload in [None, [], {'choices': None}, {'choices': []},
+                        {'choices': [None]}, {'choices': [{'message': None}]},
+                        {'choices': [{'message': []}]}, {'choices': [{'message': {'content': None}}]}]:
+            with self.subTest(payload=payload), self.assertRaises(ai.Retryable):
+                self.run_response(200, payload)
+        real_client = httpx.Client
+        calls = []
+        def respond(req):
+            calls.append(req.url.host)
+            return httpx.Response(200, json={'choices': [{'message': None if len(calls) == 1 else {'content': '[]'}}]})
+        with override_settings(FIREWORKS_API_KEY='f', GEMINI_API_KEY='g', OPENROUTER_API_KEY=''), patch(
+                'inventory.ai.httpx.Client', side_effect=lambda **kw: real_client(transport=httpx.MockTransport(respond), **kw)):
+            self.assertEqual(ai.complete([], ai.suggestions), [])
+        self.assertEqual(len(calls), 2)
+
+    @override_settings(FIREWORKS_API_KEY='f', GEMINI_API_KEY='g', OPENROUTER_API_KEY='o', AI_TOTAL_TIMEOUT=150, AI_PROVIDER_TIMEOUT=120)
+    def test_first_provider_leaves_time_for_both_fallbacks(self):
+        with patch('inventory.ai.request', side_effect=[ai.Retryable('down'), ([], 'g')]) as call:
+            self.assertEqual(ai.complete([], ai.suggestions), [])
+        self.assertLessEqual(call.call_args_list[0].kwargs['timeout'], 90)
+        self.assertLessEqual(call.call_args_list[1].kwargs['timeout'], 120)
+
     def test_whole_call_deadline(self):
         def slow(*args,**kwargs):
             time.sleep(.02)
@@ -516,7 +560,7 @@ class BackupTests(TransactionTestCase):
     def test_backup_restores_inventory_without_draft_payload(self):
         owner=get_user_model().objects.create_user('backupowner',is_staff=True)
         box=Box.objects.create(number=4,category='Parts')
-        draft=Draft.objects.create(owner=owner,box=box,entries=[{'name':'PRIVATE DRAFT PAYLOAD'}],files=['private.jpg'])
+        draft=Draft.objects.create(owner=owner,box=box,entries=[{'name':'PRIVATE DRAFT PAYLOAD'}],files=['private.jpg'],transcript='PRIVATE TRANSCRIPT',context='PRIVATE NOTE')
         item=Item.objects.create(box=box,name='M3 assortment',draft=draft,draft_row=0)
         with tempfile.TemporaryDirectory() as directory:
             source=Path(directory)/'source.sqlite3'
@@ -532,6 +576,8 @@ class BackupTests(TransactionTestCase):
                 self.assertEqual(restored.execute('SELECT entries,files,state FROM inventory_draft').fetchone(),('[]','[]','expired'))
                 self.assertEqual(restored.execute('PRAGMA foreign_key_check').fetchall(),[])
             self.assertNotIn(b'PRIVATE DRAFT PAYLOAD',target.read_bytes())
+            self.assertNotIn(b'PRIVATE TRANSCRIPT',target.read_bytes())
+            self.assertNotIn(b'PRIVATE NOTE',target.read_bytes())
             self.assertEqual(target.stat().st_mode & 0o777,0o600)
 
 @override_settings(SECURE_SSL_REDIRECT=False)

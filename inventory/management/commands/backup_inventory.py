@@ -21,7 +21,7 @@ class Command(BaseCommand):
         try:
             with sqlite3.connect(f'{source.as_uri()}?mode=ro',uri=True) as src, sqlite3.connect(target) as dest:
                 src.backup(dest)
-                dest.execute("UPDATE inventory_draft SET entries='[]', files='[]', state=CASE WHEN state='open' THEN 'expired' ELSE state END, analyzing_until=NULL, analysis_token=NULL")
+                dest.execute("UPDATE inventory_draft SET entries='[]', files='[]', transcript='', context='', state=CASE WHEN state='open' THEN 'expired' ELSE state END, analyzing_until=NULL, analysis_token=NULL")
                 dest.execute('DELETE FROM django_session')
                 dest.commit()
                 dest.execute('VACUUM')

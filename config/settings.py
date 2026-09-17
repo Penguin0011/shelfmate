@@ -48,24 +48,9 @@ OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 AUTH_PASSWORD_VALIDATORS = [ {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'}, {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'} ]
 
 FIREWORKS_MODEL = os.getenv('FIREWORKS_MODEL', 'accounts/fireworks/models/glm-5p3-flash')
-# Left unbounded, GLM's reasoning on a dense parts photo ranged over 5.6k-11k tokens and 76-128s --
-# past any timeout we can afford. Pinning the effort holds it to ~26s for the same seven valid
-# entries. It is not free, though: pinned at either 'low' or 'high' GLM stops honouring the prompt's
-# "ignore obscure marketplace brands" rule and names them, which unbounded it gets right. We take
-# that trade because an analysis slower than the timeout returns nothing at all. Set the env var to
-# empty to send no effort at all and get the unbounded behaviour back. Fireworks-only parameter.
+# Recognition limits reasoning; search uses its own independently configurable setting.
 FIREWORKS_EXTRA = {'reasoning_effort': v} if (v := os.getenv('FIREWORKS_REASONING_EFFORT', 'high')) else {}
-# Same model as recognition, deliberately: deepseek's cheap cached-input rate looked like the
-# reason to split them, but on a real 127-item inventory cached input is ~$0.0002 either way and
-# the bill is output tokens. Deepseek spent 5.6k-8.7k of them per search at 64-96s, and on two of
-# three real questions ran the full 32k and returned nothing at all.
 FIREWORKS_SEARCH_MODEL = os.getenv('FIREWORKS_SEARCH_MODEL', 'accounts/fireworks/models/glm-5p3-flash')
-# What actually differs is the reasoning, and search wants it UNCAPPED. Capping it is not the free
-# latency win it is for recognition: at reasoning_effort=high glm answered "anything for soldering"
-# with unparseable output and "something to hold two boards while glue dries" with nothing, where
-# uncapped it finds seven soldering items and three kinds of tape. Uncapped search is 12-16s, well
-# inside budget, so there is nothing to buy by capping it. Empty, not None -- None would mean
-# "inherit FIREWORKS_EXTRA" and silently re-apply the recognition cap.
 FIREWORKS_SEARCH_EXTRA = {'reasoning_effort': e} if (e := os.getenv('FIREWORKS_SEARCH_REASONING_EFFORT', '')) else {}
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-3.1-flash-lite')
 # Pin a vision model; the generic free router may select a non-generative classifier.

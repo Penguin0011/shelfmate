@@ -10,7 +10,7 @@ from django.utils import timezone
 from . import ai, drafts
 from .access import endpoint, body, limited
 from .models import Draft, Item
-from .validation import Invalid, entries, integer, string
+from .validation import Invalid, integer, string
 from .views import item_data
 from .draft_views import data as draft_data
 
@@ -104,16 +104,15 @@ def analyze(request, pk):
 def matches(value):
     if not isinstance(value, list):
         raise Invalid('Invalid search response')
-    # Take what is usable rather than discarding the reply. The prompt asks for at most 20 entries
-    # and an explanation on each, but a model handing back a 21st row, or one row it forgot to
-    # explain, used to throw away every other match with it -- and _run cannot tell that Invalid
-    # from a timeout, so a good answer was silently swapped for the next provider's.
+    # Keep up to 20 valid matches, without letting invalid early rows hide later ones.
     result=[]
-    for row in value[:20]:
+    for row in value:
         if not isinstance(row, dict):
             continue
         try:
             result.append({'id':integer(row,'id'), 'explanation':string(row,'explanation',500)})
+            if len(result) == 20:
+                break
         except Invalid:
             continue
     # A reply where nothing at all survives is malformed rather than merely sloppy, so it still

@@ -9,8 +9,7 @@ from .validation import Invalid, entries
 
 logger = logging.getLogger(__name__)
 slots = BoundedSemaphore(2)
-# The opening line of a code fence, whatever it is tagged with. Only the opener needs removing:
-# raw_decode stops at the end of the JSON value, so the closing fence takes care of itself.
+# Accept JSON code fences, but never silently discard prose or qualifications.
 OPENING_FENCE = re.compile(r'\A```[A-Za-z0-9_+-]*[ \t]*\r?\n')
 
 class AIError(Exception):
@@ -53,53 +52,54 @@ def request(provider, key, model, url, messages, timeout=None, extra=None):
                     if len(raw) > 1_000_000:
                         raise Retryable('AI response too large')
         result = json.loads(raw)
+        if not isinstance(result, dict) or not isinstance(result.get('choices'), list):
+            raise Retryable('Invalid AI envelope')
         choice = result['choices'][0]
+        if not isinstance(choice, dict) or not isinstance(choice.get('message'), dict):
+            raise Retryable('Invalid AI message')
         message = choice['message']
         if message.get('refusal') or choice.get('finish_reason') == 'content_filter':
             raise Refused('AI declined this request')
         if choice.get('finish_reason') == 'length':
             raise Retryable('AI response incomplete')
-        text = message['content']
+        text = message.get('content')
         if not isinstance(text, str):
             raise Retryable('Invalid AI content')
-        # Take the JSON value the reply opens with, inside a code fence of any tag or none, and
-        # ignore whatever the model adds after it. Both halves were costing us real answers: the old
-        # fence check matched the one exact '```json\n' spelling, and json.loads rejects trailing
-        # text outright, so a reply that closed its array and then added "Note: the inventory
-        # contains no dedicated clamps..." -- which glm does -- was discarded entire and re-asked of
-        # the next provider. raw_decode still requires the reply to START with the value, so a model
-        # burying JSON in prose is not quietly mined for the parseable-looking part; that fails over.
-        text = OPENING_FENCE.sub('', text.strip())
-        return json.JSONDecoder().raw_decode(text)[0], result.get('model', model)
+        text = text.strip()
+        if OPENING_FENCE.match(text):
+            text = OPENING_FENCE.sub('', text)
+            if not text.endswith('```'):
+                raise Retryable('Invalid AI fence or trailing commentary')
+            text = text[:-3].strip()
+        return json.loads(text), result.get('model', model)
     except (TimeoutError, httpx.RequestError) as exc:
         raise Retryable('AI request timed out or disconnected') from exc
     except (ValueError, KeyError, IndexError, TypeError) as exc:
         raise Retryable('Invalid AI response') from exc
 
 
-def _run(messages, validate, fireworks_model=None, fireworks_extra=None):
-    # Most reliable first, then fastest; a slow provider must never starve the ones behind it.
-    # Only the Fireworks row is task-tunable: the failovers are general-purpose, and a model name
-    # or a reasoning_effort meant for Fireworks is a 400 from any of them.
-    providers = [
+def providers(fireworks_model=None, fireworks_extra=None):
+    # Model parameters belong to their provider; never pass Fireworks options to a fallback.
+    return [
         ('Fireworks', settings.FIREWORKS_API_KEY, fireworks_model or settings.FIREWORKS_MODEL, 'https://api.fireworks.ai/inference/v1/chat/completions', settings.FIREWORKS_EXTRA if fireworks_extra is None else fireworks_extra),
         ('Gemini', settings.GEMINI_API_KEY, settings.GEMINI_MODEL, 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', None),
         ('OpenRouter', settings.OPENROUTER_API_KEY, settings.OPENROUTER_MODEL, 'https://openrouter.ai/api/v1/chat/completions', None),
     ]
+
+
+def _run(messages, validate, fireworks_model=None, fireworks_extra=None):
+    configured = [p for p in providers(fireworks_model, fireworks_extra) if p[1]]
     deadline = time.monotonic() + settings.AI_TOTAL_TIMEOUT
-    for name, key, model, url, extra in providers:
-        # Skip unconfigured providers here: request() raises AIError for a missing key, and AIError
-        # is deliberately not retryable, so letting it through would abort the whole chain instead
-        # of falling through to the providers that *are* configured.
-        if not key:
-            logger.info('AI provider=%s status=skipped reason=no key configured', name)
-            continue
+    for index, (name, key, model, url, extra) in enumerate(configured):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
+        # Reserve up to 30 seconds for each configured fallback.
+        left = len(configured) - index
+        budget = min(settings.AI_PROVIDER_TIMEOUT + 15, remaining - min(30, remaining / left) * (left - 1))
         started = time.monotonic()
         try:
-            result, actual_model = request(name, key, model, url, messages, timeout=min(settings.AI_PROVIDER_TIMEOUT + 15, remaining), extra=extra)
+            result, actual_model = request(name, key, model, url, messages, timeout=budget, extra=extra)
             if time.monotonic() >= deadline:
                 break
             validated = validate(result)
@@ -111,10 +111,7 @@ def _run(messages, validate, fireworks_model=None, fireworks_extra=None):
             # Record why, or the next outage costs a debugging session to reach this same line.
             logger.warning('AI provider=%s duration=%.2f status=retryable reason=%s: %s', name, time.monotonic()-started, type(exc).__name__, exc)
         except AIError as exc:
-            # A provider rejecting us -- bad parameters, a stale key, a model retired out from under
-            # us -- says nothing about the providers behind it, so carry on down the chain instead
-            # of failing the whole request. gemini-2.5-flash returning 404 'no longer available to
-            # new users' is exactly this case.
+            # Provider rejection is recoverable; content refusal above is not.
             logger.warning('AI provider=%s duration=%.2f status=rejected reason=%s: %s', name, time.monotonic()-started, type(exc).__name__, exc)
     if time.monotonic() >= deadline:
         raise AIError('AI deadline exceeded; retry later')
@@ -122,9 +119,6 @@ def _run(messages, validate, fireworks_model=None, fireworks_extra=None):
 
 
 def complete(messages, validate, fireworks_model=None, fireworks_extra=None):
-    # The two Fireworks tasks share a model but not its reasoning: recognition caps the effort to
-    # stay inside the timeout, search leaves it uncapped because capping it costs real matches. The
-    # model and its parameters travel together so a caller cannot pick one and inherit the other.
     # ponytail: one process, two remote calls at once; add a queue only if needed.
     if not slots.acquire(blocking=False):
         raise AIError('AI is busy; try again shortly')

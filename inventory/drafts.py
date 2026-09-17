@@ -136,6 +136,7 @@ def save(draft_id, owner, revision):
         touch_boxes(draft.box_id)
         draft.state = 'saved'
         draft.entries = []
+        draft.transcript = draft.context = ''
         draft.analysis_token = None
         draft.analyzing_until = None
         draft.revision += 1
@@ -150,6 +151,7 @@ def cancel(draft_id, owner):
         if draft.state == 'saved':
             raise Invalid('Already saved; edit inventory instead')
         draft.state, draft.entries = 'cancelled', []
+        draft.transcript = draft.context = ''
         draft.analysis_token = None
         draft.analyzing_until = None
         draft.revision += 1
@@ -160,6 +162,8 @@ def cancel(draft_id, owner):
 def cleanup():
     now = timezone.now()
     Draft.objects.filter(state='open', expires_at__lte=now).update(state='expired', entries=[], analysis_token=None, analyzing_until=None)
+    # Also scrub drafts closed before transcript/context cleanup was introduced.
+    Draft.objects.exclude(state='open').exclude(transcript='', context='').update(transcript='', context='')
     count = 0
     for draft in Draft.objects.exclude(state='open'):
         count += cleanup_files(draft)
