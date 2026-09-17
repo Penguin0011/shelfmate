@@ -55,13 +55,16 @@ echo <commit> > /opt/inventory/REVISION
 
 # 3. migrate, collect static, sanity check
 .venv/bin/python manage.py migrate --noinput
-.venv/bin/python manage.py collectstatic --noinput
+.venv/bin/python manage.py collectstatic --clear --noinput
 .venv/bin/python manage.py check --deploy          # 2 HSTS warnings are expected and accepted
 
 # 4. only if deploy/inventory.service changed
 cp /opt/inventory/deploy/inventory.service /etc/systemd/system/ && systemctl daemon-reload
 
 systemctl restart inventory
+# systemd Type=simple may report started before Gunicorn opens its listener.
+curl --retry 8 --retry-connrefused --retry-delay 1 -fsS \
+  -H 'Host: box.clouddev.dad' -H 'X-Forwarded-Proto: https' http://127.0.0.1/health/
 ```
 
 The backup destination must not exist. The command uses SQLite's backup API, removes temporary
@@ -71,7 +74,10 @@ running source database for a restore test.
 
 ### Two traps
 
-**`collectstatic` is mandatory for any UI change.** Production serves `/static/` from
+**`collectstatic --clear` is mandatory for a release or rollback.**
+Restoring an older archive restores older source timestamps: without clearing, collectstatic can
+leave newer JS/CSS behind. Stop the service before restoring code, rebuild assets, then start it.
+ Production serves `/static/` from
 `/opt/inventory/staticfiles` via WhiteNoise. Copying code and restarting ships backend changes
 while leaving the **old JS and CSS live**. Local `runserver` hides this, because `DEBUG=1` serves
 assets straight from the app directory. Verify afterwards by fetching the real URL and grepping
