@@ -49,9 +49,12 @@ AUTH_PASSWORD_VALIDATORS = [ {'NAME': 'django.contrib.auth.password_validation.M
 
 FIREWORKS_MODEL = os.getenv('FIREWORKS_MODEL', 'accounts/fireworks/models/glm-5p3-flash')
 # Left unbounded, GLM's reasoning on a dense parts photo ranged over 5.6k-11k tokens and 76-128s --
-# past any timeout we can afford. Pinning the effort holds it to ~600 tokens and ~26s for the same
-# seven valid entries, so this is a latency bound, not a quality knob. Fireworks-only parameter.
-FIREWORKS_EXTRA = {'reasoning_effort': os.getenv('FIREWORKS_REASONING_EFFORT', 'high')}
+# past any timeout we can afford. Pinning the effort holds it to ~26s for the same seven valid
+# entries. It is not free, though: pinned at either 'low' or 'high' GLM stops honouring the prompt's
+# "ignore obscure marketplace brands" rule and names them, which unbounded it gets right. We take
+# that trade because an analysis slower than the timeout returns nothing at all. Set the env var to
+# empty to send no effort at all and get the unbounded behaviour back. Fireworks-only parameter.
+FIREWORKS_EXTRA = {'reasoning_effort': v} if (v := os.getenv('FIREWORKS_REASONING_EFFORT', 'high')) else {}
 # Search is a different purchase from recognition. It re-sends the whole inventory every question,
 # so almost all of its input is cache hits, and deepseek bills those at $0.007/M against glm's
 # $0.03/M -- 4x cheaper on the term that dominates. glm wins on output volume but not by enough:
