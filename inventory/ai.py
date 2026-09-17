@@ -23,10 +23,11 @@ class Refused(AIError):
     pass
 
 
-def request(provider, key, model, url, messages, timeout=None):
+def request(provider, key, model, url, messages, timeout=None, extra=None):
     if not key:
         raise AIError(f'{provider} API key is not configured')
-    payload = {'model': model, 'messages': messages, 'max_tokens': settings.AI_MAX_TOKENS, 'temperature': 0.1}
+    # extra is per-provider: a parameter one provider understands is a 400 from the next one.
+    payload = {'model': model, 'messages': messages, 'max_tokens': settings.AI_MAX_TOKENS, 'temperature': 0.1, **(extra or {})}
     budget = timeout or settings.AI_PROVIDER_TIMEOUT + 15
     deadline = time.monotonic() + budget
     # Connecting should be quick; uploading photos and waiting for generation should not be rushed.
@@ -71,13 +72,12 @@ def request(provider, key, model, url, messages, timeout=None):
 def _run(messages, validate):
     # Most reliable first, then fastest; a slow provider must never starve the ones behind it.
     providers = [
-        ('Fireworks', settings.FIREWORKS_API_KEY, settings.FIREWORKS_MODEL, 'https://api.fireworks.ai/inference/v1/chat/completions'),
-        ('Gemini', settings.GEMINI_API_KEY, settings.GEMINI_MODEL, 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'),
-        ('OpenRouter', settings.OPENROUTER_API_KEY, settings.OPENROUTER_MODEL, 'https://openrouter.ai/api/v1/chat/completions'),
-        ('NVIDIA', settings.NVIDIA_API_KEY, settings.NVIDIA_MODEL, 'https://integrate.api.nvidia.com/v1/chat/completions'),
+        ('Fireworks', settings.FIREWORKS_API_KEY, settings.FIREWORKS_MODEL, 'https://api.fireworks.ai/inference/v1/chat/completions', settings.FIREWORKS_EXTRA),
+        ('Gemini', settings.GEMINI_API_KEY, settings.GEMINI_MODEL, 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', None),
+        ('OpenRouter', settings.OPENROUTER_API_KEY, settings.OPENROUTER_MODEL, 'https://openrouter.ai/api/v1/chat/completions', None),
     ]
     deadline = time.monotonic() + settings.AI_TOTAL_TIMEOUT
-    for name, key, model, url in providers:
+    for name, key, model, url, extra in providers:
         # Skip unconfigured providers here: request() raises AIError for a missing key, and AIError
         # is deliberately not retryable, so letting it through would abort the whole chain instead
         # of falling through to the providers that *are* configured.
@@ -89,7 +89,7 @@ def _run(messages, validate):
             break
         started = time.monotonic()
         try:
-            result, actual_model = request(name, key, model, url, messages, timeout=min(settings.AI_PROVIDER_TIMEOUT + 15, remaining))
+            result, actual_model = request(name, key, model, url, messages, timeout=min(settings.AI_PROVIDER_TIMEOUT + 15, remaining), extra=extra)
             if time.monotonic() >= deadline:
                 break
             validated = validate(result)

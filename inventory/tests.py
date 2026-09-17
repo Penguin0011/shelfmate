@@ -269,7 +269,7 @@ class DraftTests(TestCase):
 
 from . import ai
 
-@override_settings(SECURE_SSL_REDIRECT=False, FIREWORKS_API_KEY='', GEMINI_API_KEY='', NVIDIA_API_KEY='test', OPENROUTER_API_KEY='test')
+@override_settings(SECURE_SSL_REDIRECT=False, FIREWORKS_API_KEY='', GEMINI_API_KEY='test', OPENROUTER_API_KEY='test')
 class AITests(TestCase):
     def test_fallback_and_schema_validation(self):
         with patch('inventory.ai.request') as call:
@@ -293,20 +293,20 @@ class AITests(TestCase):
         # A missing key raises AIError, which is deliberately not retryable. If that escaped the
         # provider loop it would abort the whole chain, so an unset key must skip instead.
         entries = __import__('inventory.validation', fromlist=['entries']).entries
-        with override_settings(FIREWORKS_API_KEY='', GEMINI_API_KEY='', OPENROUTER_API_KEY='', NVIDIA_API_KEY='configured'):
+        with override_settings(FIREWORKS_API_KEY='', GEMINI_API_KEY='', OPENROUTER_API_KEY='configured'):
             with patch('inventory.ai.request') as call:
-                call.side_effect = [([{'name': 'Cable'}], 'nvidia-model')]
+                call.side_effect = [([{'name': 'Cable'}], 'openrouter-model')]
                 self.assertEqual(ai.complete([], entries)[0]['name'], 'Cable')
                 self.assertEqual(call.call_count, 1)
-                self.assertEqual(call.call_args.args[0], 'NVIDIA')
-        with override_settings(FIREWORKS_API_KEY='', GEMINI_API_KEY='', OPENROUTER_API_KEY='', NVIDIA_API_KEY=''):
+                self.assertEqual(call.call_args.args[0], 'OpenRouter')
+        with override_settings(FIREWORKS_API_KEY='', GEMINI_API_KEY='', OPENROUTER_API_KEY=''):
             with patch('inventory.ai.request') as call:
                 with self.assertRaises(ai.AIError):
                     ai.complete([], entries)
                 self.assertEqual(call.call_count, 0)
     def test_fireworks_is_tried_before_the_slower_providers(self):
         entries = __import__('inventory.validation', fromlist=['entries']).entries
-        with override_settings(FIREWORKS_API_KEY='f', GEMINI_API_KEY='g', OPENROUTER_API_KEY='o', NVIDIA_API_KEY='n'):
+        with override_settings(FIREWORKS_API_KEY='f', GEMINI_API_KEY='g', OPENROUTER_API_KEY='o'):
             with patch('inventory.ai.request') as call:
                 call.side_effect = [([{'name': 'Screws'}], 'fireworks-model')]
                 self.assertEqual(ai.complete([], entries)[0]['name'], 'Screws')
@@ -338,25 +338,43 @@ class AITests(TestCase):
             with patch('inventory.ai.complete', side_effect=capture):
                 self.client.post('/api/search/ai/', json.dumps({'question':'screws'}), content_type='application/json')
         self.assertTrue(all(len(r['description']) <= 300 for r in captured['payload']))
+    def test_search_keeps_the_question_out_of_the_inventory_message(self):
+        # Prompt caching checkpoints at message boundaries. Folding the question in beside the
+        # inventory costs nothing visible -- search still works -- but the cache then only hits when
+        # the identical question repeats, so every real search re-bills the whole inventory at the
+        # uncached rate. Measured on 260 items: same message = 0 cached tokens, split = 61,440.
+        buckets.clear()
+        box = Box.objects.create(number=4, category='Parts')
+        Item.objects.create(box=box, name='M3 screws', description='stainless', aliases='hex')
+        captured = {}
+        with patch('inventory.ai.complete', side_effect=lambda messages, validate: captured.setdefault('m', messages) and []):
+            self.client.post('/api/search/ai/', json.dumps({'question':'what fits an M3 thread'}), content_type='application/json')
+        messages = captured['m']
+        inventory_message = messages[1]['content']
+        self.assertIn('inventory', json.loads(inventory_message))
+        self.assertNotIn('what fits an M3 thread', inventory_message,
+            'the question must not share a message with the inventory, or the cached prefix is lost')
+        self.assertEqual(json.loads(messages[2]['content'])['question'], 'what fits an M3 thread')
+        # Both stay untrusted: the inventory is model-written from photos, so it is not system input.
+        self.assertTrue(all(m['role'] == 'user' for m in messages[1:]))
     def test_provider_rejection_falls_through_to_the_next_provider(self):
         # 400 bad parameters, a stale key, or a model retired out from under us are all provider-level
         # failures that say nothing about the providers behind them. Only a content refusal stops the
         # chain. gemini-2.5-flash returning 404 "no longer available to new users" is the real case.
         entries = __import__('inventory.validation', fromlist=['entries']).entries
-        with override_settings(FIREWORKS_API_KEY='f', GEMINI_API_KEY='g', OPENROUTER_API_KEY='o', NVIDIA_API_KEY='n'):
+        with override_settings(FIREWORKS_API_KEY='f', GEMINI_API_KEY='g', OPENROUTER_API_KEY='o'):
             with patch('inventory.ai.request') as call:
                 call.side_effect = [ai.AIError('Fireworks rejected the request'),
                                     ai.AIError('Gemini rejected the request'),
-                                    ai.AIError('OpenRouter authentication or access failed'),
-                                    ([{'name': 'Screws'}], 'nvidia-model')]
+                                    ([{'name': 'Screws'}], 'openrouter-model')]
                 self.assertEqual(ai.complete([], entries)[0]['name'], 'Screws')
-                self.assertEqual(call.call_count, 4)
+                self.assertEqual(call.call_count, 3)
             # Every provider rejecting still ends as a single AIError, not a leaked provider message.
             with patch('inventory.ai.request') as call:
                 call.side_effect = ai.AIError('rejected')
                 with self.assertRaises(ai.AIError):
                     ai.complete([], entries)
-                self.assertEqual(call.call_count, 4)
+                self.assertEqual(call.call_count, 3)
             # A refusal from the first provider still stops immediately.
             with patch('inventory.ai.request') as call:
                 call.side_effect = [ai.Refused('declined'), ([{'name': 'Screws'}], 'm')]

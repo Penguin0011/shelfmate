@@ -44,17 +44,19 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 26 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 0
 FIREWORKS_API_KEY = os.getenv('FIREWORKS_API_KEY', '')
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
-NVIDIA_API_KEY = os.getenv('NVIDIA_API_KEY', '')
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 AUTH_PASSWORD_VALIDATORS = [ {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'}, {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'} ]
 
-FIREWORKS_MODEL = os.getenv('FIREWORKS_MODEL', 'accounts/fireworks/models/deepseek-v4p1-flash')
+FIREWORKS_MODEL = os.getenv('FIREWORKS_MODEL', 'accounts/fireworks/models/glm-5p3-flash')
+# Left unbounded, GLM's reasoning on a dense parts photo ranged over 5.6k-11k tokens and 76-128s --
+# past any timeout we can afford. Pinning the effort holds it to ~600 tokens and ~26s for the same
+# seven valid entries, so this is a latency bound, not a quality knob. Fireworks-only parameter.
+FIREWORKS_EXTRA = {'reasoning_effort': os.getenv('FIREWORKS_REASONING_EFFORT', 'high')}
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-3.1-flash-lite')
-NVIDIA_MODEL = os.getenv('NVIDIA_MODEL', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning')
 # Pin a vision model; the generic free router may select a non-generative classifier.
 OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'dots-studio/dots-3-note-preview:free')
 # Large batches can exceed 20k output tokens; a length-truncated reply is discarded.
 AI_MAX_TOKENS = int(os.getenv('AI_MAX_TOKENS', '32000'))
 AI_SEARCH_BUDGET = int(os.getenv('AI_SEARCH_BUDGET', '300000'))
-AI_PROVIDER_TIMEOUT = int(os.getenv('AI_PROVIDER_TIMEOUT', '60'))
+AI_PROVIDER_TIMEOUT = int(os.getenv('AI_PROVIDER_TIMEOUT', '120'))
 AI_TOTAL_TIMEOUT = int(os.getenv('AI_TOTAL_TIMEOUT', '150'))
