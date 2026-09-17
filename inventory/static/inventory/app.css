@@ -151,7 +151,7 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
    the model is for describing a thing you cannot name. Radios so the state is the form's, not JS's. */
 .mode-switch{display:flex;align-self:center;max-width:100%;border:1px solid var(--hair)}
 .mode-option{
-  flex:0 1 auto;position:relative;display:flex;align-items:center;justify-content:center;
+  flex:0 1 auto;position:relative;display:flex;align-items:center;justify-content:center;gap:6px;
   margin:0;padding:6px 13px;min-height:34px;cursor:pointer;color:var(--muted);text-align:center;
   font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;white-space:nowrap;
   transition:background .12s linear,color .12s linear;
@@ -159,6 +159,7 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
 .mode-option+.mode-option{border-left:1px solid var(--hair)}
 .mode-option:hover{background:var(--raised);color:var(--ink)}
 .mode-option input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+.mode-option svg{flex:none}
 .mode-option:has(input:checked){background:var(--ink);color:var(--sheet)}
 .mode-option:has(input:focus-visible){outline:2px solid var(--red);outline-offset:-2px}
 .ask-go{
@@ -413,12 +414,12 @@ dialog::backdrop{background:#000000d9}
   :root{--gutter:48px}
   body{padding:16px 10px 28px}
   .index-stats{
-    display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:end;
-    gap:12px;padding-bottom:16px;
+    display:grid;grid-template-columns:minmax(0,1fr) max-content;align-items:end;
+    gap:12px 10px;padding-bottom:16px;
   }
   .mode-switch{justify-self:end}
   .ask{grid-column:1/-1}
-  .mode-option{padding:6px 9px;font-size:9px;letter-spacing:.06em;line-height:1.25;white-space:normal}
+  .mode-option{padding:6px 8px;font-size:9px;letter-spacing:.05em;gap:4px}
   .session{gap:8px;font-size:10px}
   .session .text-button{min-height:34px;font-size:11px}
   .topbar{padding-top:16px;gap:10px}
