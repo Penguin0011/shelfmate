@@ -53,6 +53,8 @@ Archived boxes appear in an owner-only list on the home page. Restore one there,
 
 Box create/edit accepts optional `location` (free text, up to 120 characters). Omitting it on edit preserves the location; an empty string clears it. Owner forms suggest locations currently assigned to boxes. Locations appear in box lists, details, and search results.
 
+The index offers two searches, chosen explicitly: name (the default, hits `/api/search/` and is instant) and AI (`/api/search/ai/`, seconds). An AI search that is unavailable still falls back to name search; a name search that finds nothing offers to escalate. A result links to its box carrying `?q=` and `?mode=`, so the box's back arrow returns to the results rather than the index. AI results are cached in `sessionStorage` for that return, so it does not spend a second call against the rate limit.
+
 ## Photos and AI
 
 Accept 1–4 JPEG, PNG, or HEIC photos, at most 10 MB each/25 MB total, bounded decoded pixels and 8 MB normalized output. The browser and server independently resize and re-encode uploads as RGB JPEG with metadata removed.

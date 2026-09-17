@@ -355,42 +355,107 @@ if(document.querySelector('.pick-item')) {
   selectionChanged();
 }
 if(new URLSearchParams(location.search).has('login'))loginForm();
-// Search stays on the index and always asks the AI first. The AI endpoint answers 429/502/503 with
-// "use local search" when it is rate-limited, unconfigured or unreachable, so fall back to the name
-// search rather than leaving the box with nothing to show.
-let searchVersion=0;
-async function runSearch() {
-  const q=$('#query').value.trim();if(!q){$('#query').focus();return;}
-  const version=++searchVersion;
-  $('#search-results').hidden=false;$('#result-list').textContent='Looking through the saved descriptions…';
-  $('#results-title').textContent='AI matches';
-  try {
-    let result, ai=true;
-    try { result=await api('/api/search/ai/',{question:q}); }
-    catch(unavailable) {
-      if(version!==searchVersion)return;
-      ai=false;
-      $('#result-list').textContent='AI is unavailable — searching names instead…';
-      result=await api(`/api/search/?q=${encodeURIComponent(q)}`,undefined,'GET');
-    }
-    if(version!==searchVersion)return;
-    $('#results-title').textContent=ai?'AI matches':'Name matches';
-    const matches=result.matches||result.items;
-    $('#result-list').innerHTML=matches.length?matches.map((i,n)=>`<a class="result-row" href="/box/${i.box}#item-${i.id}"><span class="row-number" aria-hidden="true">${String(n+1).padStart(2,'0')}</span><div class="result-copy">${ai?'<span class="match-label">Possible match</span>':''}<h3>${esc(i.name)}</h3><span class="box-number">${i.location?`${esc(i.location)} · `:''}Box ${i.box} / ${esc(i.category)}</span><p>${esc(ai?i.explanation:i.description)}</p></div></a>`).join(''):'<div class="empty"><h3>No matching entries.</h3><p>Try a different name, or ask the owner to check.</p></div>';
-    history.replaceState(null,'',`/?q=${encodeURIComponent(q)}`);
-  } catch(error){if(version===searchVersion){$('#result-list').innerHTML='';const p=document.createElement('p');p.className='pad';p.textContent=error.message;$('#result-list').append(p);}}
+// Two searches, chosen by the owner rather than guessed at. Name search hits the database and is
+// instant; the AI reads the saved descriptions and takes seconds, so it is asked for explicitly.
+// The old always-AI-first fallback stays for the case where the owner did ask and it is unavailable.
+const MODES = {
+  name: {title:'Name matches', hint:'Matches names, descriptions and alternate names. Instant.',
+         placeholder:'Search by name', working:'Searching names…'},
+  ai:   {title:'AI matches', hint:'Describe what you need and the AI reads every saved description. Takes a few seconds.',
+         placeholder:'Describe what you need', working:'Reading the saved descriptions…'},
+};
+const mode = () => ($('#search-form') ? $('#search-form').mode.value : 'name');
+const setMode = value => { const r = $(`#search-form input[value="${value}"]`); if (r) { r.checked = true; modeChanged(); } };
+// Back from a box lands on the results that sent you there, so the query travels with the link.
+const searchQuery = (q, m) => `q=${encodeURIComponent(q)}${m === 'ai' ? '&mode=ai' : ''}`;
+// ponytail: per-tab cache so returning to AI results does not spend another call against the
+// ai-search rate limit. Drop it if results ever need to reflect edits made in another tab.
+const cached = (key, value) => { try { if (value === undefined) return JSON.parse(sessionStorage.getItem(key)); sessionStorage.setItem(key, JSON.stringify(value)); } catch { return null; } };
+
+function modeChanged() {
+  const m = MODES[mode()];
+  $('#query').placeholder = m.placeholder;
+  $('#ask-hint').textContent = m.hint;
 }
-if($('#search-form')) {
-  $('#search-form').addEventListener('submit',e=>{e.preventDefault();runSearch();});
-  $('#clear-search').onclick=()=>{searchVersion++;$('#search-results').hidden=true;$('#query').value='';history.replaceState(null,'','/');$('#query').focus();};
+
+function resultRow(item, ai, q) {
+  const where = `<span class="result-where"><span class="group-mark" aria-hidden="true"></span><span>${item.location ? esc(item.location) : 'Unplaced'} <span class="where-sep" aria-hidden="true">/</span> <span class="where-box">Box ${item.box}</span> <span class="where-sep" aria-hidden="true">/</span> ${esc(item.category)}</span></span>`;
+  const body = ai ? item.explanation : item.description;
+  return `<a class="result-row" href="/box/${item.box}?${searchQuery(q, ai ? 'ai' : 'name')}#item-${item.id}">`
+    + `<span class="row-number" aria-hidden="true">${String(item.box).padStart(2, '0')}</span>`
+    + `<div class="result-copy"><h3>${esc(item.name)}</h3>${where}`
+    + `${body || ai ? `<p>${ai ? '<span class="match-label">Possible match</span>' : ''}${esc(body)}</p>` : ''}</div></a>`;
+}
+
+function showResults(q, matches, ai) {
+  $('#results-title').textContent = MODES[ai ? 'ai' : 'name'].title;
+  $('#results-count').textContent = matches.length ? `${matches.length} found` : '';
+  $('#result-list').innerHTML = matches.length
+    ? matches.map(i => resultRow(i, ai, q)).join('')
+    : `<div class="empty result-empty"><h3>Nothing named that.</h3><p>No entry matches “${esc(q)}”.</p>`
+      + (ai ? '<p class="hint">The AI read every saved description and found nothing close. Try different words, or ask the owner to check.</p>'
+            : '<div class="actions"><button type="button" id="escalate">Ask the house instead</button></div>'
+              + '<p class="hint">A name search only matches the words written down. The AI reads the full descriptions and can work from a rough description.</p>')
+      + '</div>';
+  if ($('#escalate')) $('#escalate').onclick = () => { setMode('ai'); runSearch(); };
+}
+
+let searchVersion = 0;
+async function runSearch() {
+  const q = $('#query').value.trim(); if (!q) { $('#query').focus(); return; }
+  const wanted = mode(), version = ++searchVersion;
+  document.body.classList.add('searching');
+  history.replaceState(null, '', `/?${searchQuery(q, wanted)}`);
+  const key = `ai-search:${q}`;
+  const hit = wanted === 'ai' && cached(key);
+  if (hit) { showResults(q, hit, true); $('#search-results').hidden = false; return; }
+  $('#search-results').hidden = false;
+  $('#result-list').textContent = MODES[wanted].working;
+  $('#results-title').textContent = MODES[wanted].title;
+  $('#results-count').textContent = '';
+  try {
+    let result, ai = wanted === 'ai';
+    if (ai) {
+      try { result = await api('/api/search/ai/', {question:q}); }
+      catch (unavailable) {
+        if (version !== searchVersion) return;
+        ai = false;
+        $('#result-list').textContent = 'AI is unavailable — searching names instead…';
+        result = await api(`/api/search/?q=${encodeURIComponent(q)}`, undefined, 'GET');
+      }
+    } else result = await api(`/api/search/?q=${encodeURIComponent(q)}`, undefined, 'GET');
+    if (version !== searchVersion) return;
+    const matches = result.matches || result.items;
+    if (ai) cached(key, matches);
+    showResults(q, matches, ai);
+  } catch (error) { if (version === searchVersion) { $('#result-list').innerHTML = ''; const p = document.createElement('p'); p.className = 'pad'; p.textContent = error.message; $('#result-list').append(p); } }
+}
+if ($('#search-form')) {
+  $('#search-form').addEventListener('submit', e => { e.preventDefault(); runSearch(); });
+  // Switching mode with a query already typed re-runs it: the point of the switch is comparing.
+  $('#search-form').addEventListener('change', e => { if (e.target.name === 'mode') { modeChanged(); if ($('#query').value.trim()) runSearch(); } });
+  $('#clear-search').onclick = () => { searchVersion++; document.body.classList.remove('searching'); $('#search-results').hidden = true; $('#query').value = ''; history.replaceState(null, '', '/'); $('#query').focus(); };
   // maxlength only constrains typing, so a long dictation must be clipped to the server's 500 limit.
+  // Dictation is sentence-shaped, so it always asks the model -- and flips the switch to show why.
   micToggle($('#search-mic'), {
-    onStart:()=>notice('Listening… ask your question, then press the microphone again.'),
-    onText:text=>{$('#query').value=text.trim().slice(0,500);},
-    onDone:failure=>{if(failure)notice(failure,true);else{$('#notice').hidden=true;if($('#query').value.trim())runSearch();}},
+    onStart:() => { setMode('ai'); notice('Listening… ask your question, then press the microphone again.'); },
+    onText:text => { $('#query').value = text.trim().slice(0, 500); },
+    onDone:failure => { if (failure) notice(failure, true); else { $('#notice').hidden = true; if ($('#query').value.trim()) runSearch(); } },
   });
-  const q=new URLSearchParams(location.search).get('q');if(q){$('#query').value=q;runSearch();}
-  if(state.owner)api('/api/drafts/',undefined,'GET').then(r=>{if(r.drafts.length){$('#draft-list').hidden=false;$('#draft-links').innerHTML=r.drafts.map(d=>`<a class="box-row" href="/drafts/${d.id}"><span class="row-number" aria-hidden="true">${String(d.box).padStart(2,'0')}</span><span class="box-copy"><span class="box-category">${d.analyzing?'Recognizing…':'Continue adding'}</span><span class="box-sub">Box ${d.box} · ${d.analyzing?'AI is still working':'unfinished draft'}</span></span></a>`).join('');}}).catch(e=>notice(e.message,true));
+  const params = new URLSearchParams(location.search), q = params.get('q');
+  if (params.get('mode') === 'ai') setMode('ai'); else modeChanged();
+  if (q) { $('#query').value = q.slice(0, 500); runSearch(); }
+  if (state.owner) api('/api/drafts/', undefined, 'GET').then(r => { if (r.drafts.length) { $('#draft-list').hidden = false; $('#draft-links').innerHTML = r.drafts.map(d => `<a class="box-row" href="/drafts/${d.id}"><span class="row-number" aria-hidden="true">${String(d.box).padStart(2, '0')}</span><span class="box-copy"><span class="box-category">${d.analyzing ? 'Recognizing…' : 'Continue adding'}</span><span class="box-sub">Box ${d.box} · ${d.analyzing ? 'AI is still working' : 'unfinished draft'}</span></span></a>`).join(''); } }).catch(e => notice(e.message, true));
+}
+
+// Every other screen's back arrow goes to the bare index, which threw the results away. When a
+// result sent you here it carried its query, so the arrow returns to it instead.
+const backLink = $('.topbar a');
+if (backLink && new URLSearchParams(location.search).get('q')) {
+  backLink.href = '/' + location.search;
+  backLink.classList.add('to-results');
+  backLink.setAttribute('aria-label', 'Back to search results');
+  $('span', backLink).textContent = 'Results';
 }
 
 // Keep revisioned draft writes in order. A lost response leaves edits visible for recovery.
