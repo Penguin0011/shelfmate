@@ -186,11 +186,14 @@ you make the prompt more verbose, keep the stated limits below the hard caps.
 verbose batch reaches ~23,000. Truncation is not graceful degradation; the whole answer is thrown
 away.
 
-**AI search sends the entire inventory as context.** Descriptions are verbose by design (~500
-chars each), so the payload grows fast. `AI_SEARCH_BUDGET` (300,000 chars) is sized for the
-**smallest** context in the chain, not Gemini's 1M. Over budget it degrades in stages — trim
-descriptions to 300 chars, then drop to name+aliases, then refuse — rather than failing outright.
-The UI does not claim every description was read when this budget strips descriptions.
+**AI search retrieves locally and reranks remotely.** An inventory under `AI_SEARCH_BUDGET`
+(120,000 JSON chars, roughly 200 items) is sent whole in one call, with the inventory in its own
+message so the prompt cache covers it between questions. Over that, the search model first turns
+the question into search terms (one small call), every item is scored locally against those terms
+and the question's own words (substring or shared word prefix, weighted name > aliases >
+description), and only the top `AI_SEARCH_CANDIDATES` (80) go to the rerank call with full
+descriptions. Cost is flat in inventory size; there is no longer a refuse path. A question whose
+terms match nothing returns an empty answer without a rerank call.
 
 **Photos are normalised server-side and in the browser.** The client shrinks to 1536 px JPEG
 before upload (`toUploadableJpeg` in `app.js`), which is what makes HEIC and 48 MP phone photos
@@ -238,7 +241,8 @@ Never commit `.env`, `data/`, or photos.
    length target (a target got padded with origin, warnings and button labels) and carries a
    NOISE RULE instead. `manage.py rewrite_descriptions` brings model-written items onto the new
    standard without photos: dry run by default, `--apply` writes and bumps item revisions.
-   Hand-typed descriptions (no draft reference) are never touched. Run it after the deploy.
+   Hand-typed descriptions (no draft reference) are never touched. Applied on the VM on 2026-09-17
+   (128 items, total description text halved).
 2. **Provider quotas.** Confirm current account limits with the provider before changing fallback policy.
 3. **Proxy timeout unverified.** See the timeout stack section.
 4. **Untracked in the working tree:** `Home Inventory mockup.html` (the original design reference).

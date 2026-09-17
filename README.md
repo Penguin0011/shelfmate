@@ -70,7 +70,7 @@ Accept 1–4 JPEG, PNG, or HEIC photos, at most 10 MB each/25 MB total, bounded 
 
 Photo save/cancel makes files inaccessible immediately. Files are removed after commit; failed deletion is retried. Draft expiry is 24 hours, with cleanup every 15 minutes when the supplied timer is installed. Never serve the draft directory from the reverse proxy. Backups exclude photo files and remove temporary draft payloads, including transcripts and owner notes. Save/cancel/expiry also clears these source fields in the database; cleanup scrubs previously closed drafts. Existing backup files are not rewritten.
 
-Recognition and AI search use the same configurable provider chain and validated response schemas. Results require owner review, with Fireworks first (the configured paid account), then configured Gemini and OpenRouter fallbacks. See `handoff.md` for provider ordering, timeout constraints, failure semantics, and measured behavior.
+Recognition and AI search use the same configurable provider chain and validated response schemas. Large inventories are cut to a bounded candidate set by local term matching before the search model reranks them, so search cost does not grow with the number of items. Results require owner review, with Fireworks first (the configured paid account), then configured Gemini and OpenRouter fallbacks. See `handoff.md` for provider ordering, timeout constraints, failure semantics, and measured behavior.
 
 Provider processing is external even though the inventory is local. Local deletion does not prove provider deletion. Provider/account-specific retention has not been established for real household images. [Certain]
 

@@ -369,32 +369,44 @@ class AITests(TestCase):
                 self.assertEqual(ai.complete([], entries)[0]['name'], 'Screws')
                 self.assertEqual(call.call_count, 1)
                 self.assertEqual(call.call_args.args[0], 'Fireworks')
-    def test_verbose_descriptions_degrade_search_instead_of_breaking_it(self):
-        # Verbose descriptions are the point of the recognition prompt, but AI search sends the whole
-        # inventory as context. A flat refusal would disable search after roughly one box, so the
-        # payload is trimmed in stages and names/aliases -- what matching needs -- survive longest.
+    def test_large_inventories_are_cut_to_candidates_with_descriptions_intact(self):
+        # Search cost must not grow with the inventory. Over the budget, the question is expanded into
+        # terms by one small call, items are scored locally, and only the best go to the rerank call
+        # with their descriptions untouched. Under the budget the whole inventory still goes as one call.
         buckets.clear()
         box = Box.objects.create(number=3, category='Parts')
         for n in range(12):
             Item.objects.create(box=box, name=f'Item {n}', description='D'*1800, aliases='A'*900)
-        captured = {}
-        def capture(messages, validate, *args):
-            captured['payload'] = json.loads(messages[1]['content'])['inventory']
-            return []
-        with override_settings(AI_SEARCH_BUDGET=12500):
-            with patch('inventory.ai.complete', side_effect=capture):
-                response = self.client.post('/api/search/ai/', json.dumps({'question':'screws'}), content_type='application/json')
+        hook = Item.objects.create(box=box, name='Picture hanging kit', description='Hooks and nails for frames.', aliases='wall, hangers')
+        tape = Item.objects.create(box=box, name='Scotch tape', description='Matte tape, mends torn paper.', aliases='office')
+        calls = []
+        def fake(messages, validate, *args):
+            calls.append(messages)
+            if 'inventory' not in messages[1]['content']:
+                return ['picture hook', 'hanger', 'wall']
+            return [{'id': hook.pk, 'explanation': 'hangs frames'}]
+        with override_settings(AI_SEARCH_BUDGET=1000, AI_SEARCH_CANDIDATES=2):
+            with patch('inventory.ai.complete', side_effect=fake):
+                response = self.client.post('/api/search/ai/', json.dumps({'question':'something to hang a frame'}), content_type='application/json')
         self.assertEqual(response.status_code, 200)
-        rows = captured['payload']
-        self.assertEqual(len(rows), 12, 'every item must still be offered to the model')
-        self.assertTrue(all('aliases' in r and 'name' in r and 'id' in r for r in rows))
-        self.assertTrue(all('description' not in r for r in rows), 'descriptions drop before items do')
-        # A budget that fits trimmed descriptions keeps them, rather than dropping straight to names.
-        buckets.clear()
-        with override_settings(AI_SEARCH_BUDGET=18000):
-            with patch('inventory.ai.complete', side_effect=capture):
-                self.client.post('/api/search/ai/', json.dumps({'question':'screws'}), content_type='application/json')
-        self.assertTrue(all(len(r['description']) <= 300 for r in captured['payload']))
+        self.assertEqual([m['id'] for m in response.json()['matches']], [hook.pk])
+        self.assertEqual(len(calls), 2, 'one expansion call, one rerank call')
+        sent = json.loads(calls[1][1]['content'])['inventory']
+        self.assertEqual([r['id'] for r in sent], [hook.pk], 'only items matching a term are offered, best first')
+        self.assertEqual(sent[0]['description'], 'Hooks and nails for frames.', 'candidates keep their full descriptions')
+        # Under budget: whole inventory, no expansion call.
+        buckets.clear(); calls.clear()
+        with override_settings(AI_SEARCH_BUDGET=10**7):
+            with patch('inventory.ai.complete', side_effect=fake):
+                self.client.post('/api/search/ai/', json.dumps({'question':'tape'}), content_type='application/json')
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(json.loads(calls[0][1]['content'])['inventory']), 14)
+        # Nothing matches any term: no rerank call, empty answer.
+        buckets.clear(); calls.clear()
+        with override_settings(AI_SEARCH_BUDGET=1000):
+            with patch('inventory.ai.complete', side_effect=lambda m, v, *a: ['zzz']):
+                response = self.client.post('/api/search/ai/', json.dumps({'question':'qqq'}), content_type='application/json')
+        self.assertEqual(response.json(), {'matches': []})
     def test_search_keeps_the_question_out_of_the_inventory_message(self):
         # Prompt caching checkpoints at message boundaries. Folding the question in beside the
         # inventory costs nothing visible -- search still works -- but the cache then only hits when

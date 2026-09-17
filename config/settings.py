@@ -57,6 +57,9 @@ GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-3.1-flash-lite')
 OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'dots-studio/dots-3-note-preview:free')
 # Large batches can exceed 20k output tokens; a length-truncated reply is discarded.
 AI_MAX_TOKENS = int(os.getenv('AI_MAX_TOKENS', '32000'))
-AI_SEARCH_BUDGET = int(os.getenv('AI_SEARCH_BUDGET', '300000'))
+# Inventories under this many JSON characters are searched whole (one cached call). Larger ones are
+# cut to AI_SEARCH_CANDIDATES items by local term matching first, so the rerank payload stays flat.
+AI_SEARCH_BUDGET = int(os.getenv('AI_SEARCH_BUDGET', '120000'))
+AI_SEARCH_CANDIDATES = int(os.getenv('AI_SEARCH_CANDIDATES', '80'))
 AI_PROVIDER_TIMEOUT = int(os.getenv('AI_PROVIDER_TIMEOUT', '120'))
 AI_TOTAL_TIMEOUT = int(os.getenv('AI_TOTAL_TIMEOUT', '150'))
