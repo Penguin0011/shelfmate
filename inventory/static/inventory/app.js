@@ -359,13 +359,11 @@ if(new URLSearchParams(location.search).has('login'))loginForm();
 // instant; smart search reads the saved descriptions and takes seconds, so it is asked for explicitly.
 // The old always-AI-first fallback stays for the case where the owner did ask and it is unavailable.
 const MODES = {
-  name: {title:'Keyword matches', hint:'Matches names, descriptions and alternate names. Instant.',
-         placeholder:'Search by keyword', working:'Searching your boxes…'},
-  ai:   {title:'Smart matches', hint:'Describe what you need and it reads every saved description. Takes a few seconds.',
-         placeholder:'Describe what you need', working:'Analyzing your inventory…'},
+  name: {title:'Keyword matches', placeholder:'Search by keyword', working:'Searching your boxes…'},
+  ai:   {title:'Smart matches', placeholder:'Describe what you need', working:'Analyzing your inventory…'},
 };
 const mode = () => ($('#search-form') ? $('#search-form').mode.value : 'name');
-const setMode = value => { const r = $(`#search-form input[value="${value}"]`); if (r) { r.checked = true; modeChanged(); } };
+const setMode = value => { const r = $(`.mode-switch input[value="${value}"]`); if (r) { r.checked = true; modeChanged(); } };
 // Back from a box lands on the results that sent you there, so the query travels with the link.
 const searchQuery = (q, m) => `q=${encodeURIComponent(q)}${m === 'ai' ? '&mode=ai' : ''}`;
 // ponytail: per-tab cache so returning to AI results does not spend another call against the
@@ -374,11 +372,7 @@ const cached = (key, value) => { try { if (value === undefined) return JSON.pars
 
 const working = text => { const p = document.createElement('p'); p.className = 'analyzing'; p.textContent = text; $('#result-list').replaceChildren(p); };
 
-function modeChanged() {
-  const m = MODES[mode()];
-  $('#query').placeholder = m.placeholder;
-  $('#ask-hint').textContent = m.hint;
-}
+function modeChanged() { $('#query').placeholder = MODES[mode()].placeholder; }
 
 function resultRow(item, ai, q) {
   const where = `<span class="result-where"><span class="group-mark" aria-hidden="true"></span><span>${item.location ? esc(item.location) : 'Unplaced'} <span class="where-sep" aria-hidden="true">/</span> <span class="where-box">Box ${item.box}</span> <span class="where-sep" aria-hidden="true">/</span> ${esc(item.category)}</span></span>`;
@@ -435,7 +429,7 @@ async function runSearch({restore = false} = {}) {
 if ($('#search-form')) {
   $('#search-form').addEventListener('submit', e => { e.preventDefault(); runSearch(); });
   // Switching mode with a query already typed re-runs it: the point of the switch is comparing.
-  $('#search-form').addEventListener('change', e => { if (e.target.name === 'mode') { modeChanged(); if ($('#query').value.trim()) runSearch(); } });
+  $('.mode-switch').addEventListener('change', () => { modeChanged(); if ($('#query').value.trim()) runSearch(); });
   $('#clear-search').onclick = () => { searchVersion++; document.body.classList.remove('searching'); $('#search-results').hidden = true; $('#query').value = ''; history.replaceState(null, '', '/'); $('#query').focus(); };
   // maxlength only constrains typing, so a long dictation must be clipped to the server's 500 limit.
   // Dictation is sentence-shaped, so it always asks the model -- and flips the switch to show why.
