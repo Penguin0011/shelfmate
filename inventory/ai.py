@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import time
 from threading import BoundedSemaphore
 import httpx
@@ -8,6 +9,9 @@ from .validation import Invalid, entries
 
 logger = logging.getLogger(__name__)
 slots = BoundedSemaphore(2)
+# The opening line of a code fence, whatever it is tagged with. Only the opener needs removing:
+# raw_decode stops at the end of the JSON value, so the closing fence takes care of itself.
+OPENING_FENCE = re.compile(r'\A```[A-Za-z0-9_+-]*[ \t]*\r?\n')
 
 class AIError(Exception):
     pass
@@ -58,11 +62,15 @@ def request(provider, key, model, url, messages, timeout=None, extra=None):
         text = message['content']
         if not isinstance(text, str):
             raise Retryable('Invalid AI content')
-        # Accept only a single JSON value, optionally inside a JSON code fence.
-        text = text.strip()
-        if text.startswith('```json\n') and text.endswith('```'):
-            text = text[8:-3].strip()
-        return json.loads(text), result.get('model', model)
+        # Take the JSON value the reply opens with, inside a code fence of any tag or none, and
+        # ignore whatever the model adds after it. Both halves were costing us real answers: the old
+        # fence check matched the one exact '```json\n' spelling, and json.loads rejects trailing
+        # text outright, so a reply that closed its array and then added "Note: the inventory
+        # contains no dedicated clamps..." -- which glm does -- was discarded entire and re-asked of
+        # the next provider. raw_decode still requires the reply to START with the value, so a model
+        # burying JSON in prose is not quietly mined for the parseable-looking part; that fails over.
+        text = OPENING_FENCE.sub('', text.strip())
+        return json.JSONDecoder().raw_decode(text)[0], result.get('model', model)
     except (TimeoutError, httpx.RequestError) as exc:
         raise Retryable('AI request timed out or disconnected') from exc
     except (ValueError, KeyError, IndexError, TypeError) as exc:
@@ -114,9 +122,9 @@ def _run(messages, validate, fireworks_model=None, fireworks_extra=None):
 
 
 def complete(messages, validate, fireworks_model=None, fireworks_extra=None):
-    # The two Fireworks tasks want different models: photo recognition pays for vision that works,
-    # search pays for a cheap cached-input rate on an inventory it re-sends every question. The
-    # model and its parameters travel together -- reasoning_effort is tuned per model, not per task.
+    # The two Fireworks tasks share a model but not its reasoning: recognition caps the effort to
+    # stay inside the timeout, search leaves it uncapped because capping it costs real matches. The
+    # model and its parameters travel together so a caller cannot pick one and inherit the other.
     # ponytail: one process, two remote calls at once; add a queue only if needed.
     if not slots.acquire(blocking=False):
         raise AIError('AI is busy; try again shortly')

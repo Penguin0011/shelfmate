@@ -281,6 +281,42 @@ class AITests(TestCase):
             call.side_effect = [({'invalid':True}, 'primary'), ([], 'free-model')]
             self.assertEqual(ai.complete([], __import__('inventory.validation',fromlist=['entries']).entries), [])
             self.assertEqual(call.call_count, 2)
+    def test_a_fenced_reply_is_unwrapped_whatever_the_fence(self):
+        # Models fence their JSON unprompted. Only the exact '```json\n' spelling used to survive,
+        # so a bare or differently-tagged fence read as a syntax error and cost the next provider a
+        # call to re-answer the same question.
+        import httpx
+        from unittest.mock import MagicMock
+        def reply(text):
+            body = json.dumps({'choices':[{'message':{'content':text},'finish_reason':'stop'}],'model':'m'})
+            response = MagicMock()
+            response.status_code = 200
+            response.iter_bytes.return_value = [body.encode()]
+            response.__enter__ = lambda self: self
+            response.__exit__ = lambda self, *a: False
+            client = MagicMock()
+            client.stream.return_value = response
+            client.__enter__ = lambda self: self
+            client.__exit__ = lambda self, *a: False
+            with patch.object(httpx, 'Client', return_value=client):
+                return ai.request('P', 'k', 'm', 'https://x', [])[0]
+        for fence in ['```json\n[{"id": 1}]\n```', '```\n[{"id": 1}]\n```',
+                      '```JSON\n[{"id": 1}]\n```', '```json\r\n[{"id": 1}]\r\n```',
+                      '```json \n[{"id": 1}]\n```', '  ```json\n[{"id": 1}]\n```  ',
+                      '[{"id": 1}]']:
+            self.assertEqual(reply(fence), [{'id': 1}], 'did not unwrap %r' % fence)
+        # Observed in production: glm closes the array and then adds a caveat. json.loads rejects
+        # trailing text outright, so the whole answer was discarded and re-asked of Gemini.
+        self.assertEqual(reply('[{"id": 1}]\n\nNote: the inventory contains no dedicated clamps.'),
+            [{'id': 1}], 'a trailing remark must not cost the matches in front of it')
+        self.assertEqual(reply('```json\n[{"id": 1}]\n```\n\nNote: improvised options only.'),
+            [{'id': 1}])
+        # Leading prose is different: the reply no longer starts with what we asked for, and mining
+        # the middle of a message for something parseable is worse than failing over.
+        with self.assertRaises(ai.Retryable):
+            reply('Here you go:\n```json\n[{"id": 1}]\n```')
+        with self.assertRaises(ai.Retryable):
+            reply('I could not find anything useful.')
     def test_no_fallback_for_refusal_or_valid_empty(self):
         with patch('inventory.ai.request') as call:
             call.side_effect = ai.Refused('refused')
