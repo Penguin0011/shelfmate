@@ -65,7 +65,7 @@ systemctl restart inventory
 ```
 
 The backup destination must not exist. The command uses SQLite's backup API, removes temporary
-draft payloads and sessions, preserves saved receipts, vacuums, and checks integrity. Restore into
+draft payloads and sessions, including transcript/context, preserves saved receipts, vacuums, and checks integrity. Restore into
 a separate `DATA_DIR` and verify migrations, login, box URLs, items, and flags; never overwrite the
 running source database for a restore test.
 
@@ -96,73 +96,51 @@ libheif headers on the VM, so a source fallback fails slowly instead of immediat
 
 ## The AI pipeline
 
-Photo recognition (`inventory/ai_views.py: analyze`) and AI search (`: search`) both go through
-`inventory/ai.py: complete`, which walks a provider chain **fastest-first**:
+Recognition and smart search use `inventory/ai.py:complete`. `providers()` is the shared
+configuration for runtime calls and the `check_ai` diagnostic:
 
-| order | provider | model | notes |
-|---|---|---|---|
-| 1 | Fireworks | `accounts/fireworks/models/deepseek-v4p1-flash` | paid tier. Vision-capable, 1M context. Real-photo latency **not yet measured** — the synthetic check ran 9–27 s wall clock, which is not comparable to the figures below |
-| 2 | Gemini | `gemini-3.1-flash-lite` | ~5–7 s. OpenAI-compatible endpoint, so no separate client |
-| 3 | OpenRouter | `dots-studio/dots-3-note-preview:free` | ~15–40 s |
-| 4 | NVIDIA | `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning` | a *reasoning* model; measured **130 s** on a real 2-photo batch |
+| order | provider | default model |
+|---|---|---|
+| 1 | Fireworks | `accounts/fireworks/models/glm-5p3-flash` |
+| 2 | Gemini | `gemini-3.1-flash-lite` |
+| 3 | OpenRouter | `dots-studio/dots-3-note-preview:free` |
 
-Fireworks leads on **reliability, not latency** — it is the one paid account in the chain, and the
-free tiers below it fail regularly (see below). Gemini is still faster on a good day, so it stays
-directly behind. NVIDIA is last deliberately: a 130 s attempt in front would consume the budget and
-starve the providers behind it. Every model is env-swappable (`FIREWORKS_MODEL`, `GEMINI_MODEL`,
-`OPENROUTER_MODEL`, `NVIDIA_MODEL`) — this matters, because `:free` models get rate-limited and
-retired. DeepSeek ships text-only variants too; `deepseek-v4p1-flash` is pinned because recognition
-sends photos and a text-only model would burn the first attempt on every one of them.
+Only configured providers are attempted. Fireworks leads for reliability and uses the configured
+paid account; there is no NVIDIA path. Recognition sends `reasoning_effort=high` by default;
+search sends no reasoning effort unless explicitly configured. The two Fireworks model/effort
+settings are independent. Empty reasoning-effort environment values omit that parameter.
+Provider model availability and account billing must be checked with the provider when changing them.
 
-A provider with **no key configured is skipped**, not fatal. `request()` raises `AIError` for a
-missing key and `AIError` is deliberately non-retryable, so calling it with an empty key would
-abort the whole chain rather than falling through.
+### Response and failure handling
 
-### Failure semantics — the one rule to preserve
+- Valid JSON (optionally inside a code fence) is schema-validated.
+- Trailing prose is rejected, because it may qualify the answer. It is never silently discarded.
+- Malformed envelopes, transport failures, truncated output and schema failures try the next provider.
+- Provider rejection (including bad credentials or a retired model) also permits fallback.
+- Content refusal or `content_filter` stops the chain.
+- A valid empty array is an answer, not a provider failure.
 
-```
-Retryable   → try the next provider   (429, 5xx, timeouts, unparseable output)
-AIError     → try the next provider   (400 bad params, 401/403 stale key, 404 retired model)
-Refused     → STOP, do not fall through
-```
+Recognition validates a whole batch: one over-limit field rejects the response and leaves the old
+draft intact if no provider succeeds. We deliberately do not truncate fields or silently omit items.
+Search keeps up to 20 valid rows, then intersects IDs with the submitted/current inventory.
 
-`Refused` is raised only for a content refusal or a `content_filter` finish. It must not fall
-through, because the other providers would likely refuse the same input and trying each in turn
-amounts to shopping for a compliant model. That intent used to be carried by the exception simply
-being non-retryable, which conflated *"the model declined this content"* with *"this provider
-could not serve us"* — and meant a single 404 killed the entire request. **If you touch this, keep
-the two separate.**
+### Time budgets
 
-### The timeout stack
+`AI_PROVIDER_TIMEOUT` defaults to 120 seconds, with a 15-second transport allowance.
+`AI_TOTAL_TIMEOUT` defaults to 150 seconds. Each attempt reserves up to 30 seconds for every
+configured provider still behind it (less if the remaining total is smaller).
+With three configured providers, a slow first attempt receives at most 90 seconds, leaving
+30 seconds each for the two fallbacks. A fast failure makes its unused budget available downstream.
 
-Every layer must stay ordered, or raising one gets silently capped by the next:
+The draft lease is total+20 seconds; Gunicorn is configured with `--timeout 200` and the reverse
+proxy has historically been configured for 300-second read/send timeouts. HTTPX read/write
+limits are inactivity limits, with wall-clock checks on received chunks and after the response;
+these checks are not an interruptible global deadline during a blocked socket operation.
+Do not claim the proxy timeout is verified without inspecting the proxy itself.
 
-```
-provider (60s) < provider+grace (75s) < total (150s) < analyzing lock (170s)
-    < gunicorn --timeout (200s) < proxy_read_timeout (300s)
-```
-
-The proxy is the real ceiling. Past its timeout the client gets a gateway 504 whose body is not
-JSON, so the app's graceful "your draft is preserved" message is lost and the UI shows a generic
-error instead. `proxy_read_timeout`/`proxy_send_timeout` are set to 300 s in NGINX Proxy Manager
-under the proxy host's **Advanced** tab. Raise that first, then the layers below it.
-
-> Not yet proven end to end: a normal Gemini response finishes in ~6 s and never approaches 300 s.
-> The setting is insurance for a slow failover. The first genuinely slow fallback will exercise it.
-
-### Free tiers run out
-
-The three fallbacks are on free tiers and all three fail regularly and simultaneously — which is
-why Fireworks was added in front on a paid key:
-
-- OpenRouter: ~50 requests/day without credits. **$10 of credit raises this to 1000/day** and is
-  the cheapest reliability improvement available.
-- Gemini: transient `503 high demand`.
-- NVIDIA: `503 Worker local total request limit reached`.
-
-This is not a bug, and the chain handles it — when all of them are down the request fails cleanly in
-~6 s with the draft preserved. Budget verification runs accordingly; it is easy to exhaust a day's
-quota while testing.
+Use `manage.py check_ai --provider auto` for one synthetic, non-sensitive recognition request.
+Individual provider checks are available for fireworks, gemini and openrouter. A successful
+synthetic request proves connectivity and schema handling, not real-photo accuracy or all fallbacks.
 
 ---
 
@@ -190,7 +168,7 @@ specific error message raised inside it. This caused every photo upload failure 
 too many megapixels, corrupt file — to report the same misleading "use JPEG or PNG". If you add a
 broad exception clause, re-raise `Invalid` before it.
 
-**Validation truncates nothing.** `validation.py: entries()` raises `Invalid` if a description
+**Server validation truncates nothing; the UI refuses over-limit merges.** `validation.py: entries()` raises `Invalid` if a description
 exceeds 2000 chars or aliases exceed 1000, and `ai.suggestions()` rejects >20 aliases or any alias
 over 200 chars. Exceeding any of them **discards the entire AI response** and burns a failover.
 The recognition prompt states limits inside those caps (1800 / 900) for exactly this reason — if
@@ -204,7 +182,7 @@ away.
 chars each), so the payload grows fast. `AI_SEARCH_BUDGET` (300,000 chars) is sized for the
 **smallest** context in the chain, not Gemini's 1M. Over budget it degrades in stages — trim
 descriptions to 300 chars, then drop to name+aliases, then refuse — rather than failing outright.
-A flat refusal would have disabled search after roughly one box.
+The UI does not claim every description was read when this budget strips descriptions.
 
 **Photos are normalised server-side and in the browser.** The client shrinks to 1536 px JPEG
 before upload (`toUploadableJpeg` in `app.js`), which is what makes HEIC and 48 MP phone photos
@@ -236,7 +214,7 @@ npm run test:ui                          # requires Chrome
 .venv/bin/python manage.py runserver
 ```
 
-`manage.py check_ai --provider fireworks|gemini|openrouter|nvidia|auto` makes a real API call against a
+`manage.py check_ai --provider fireworks|gemini|openrouter|auto` makes a real API call against a
 generated label image. Useful for confirming a key or model works; it does **not** represent real
 photo load — a synthetic 640×320 image is ~316 prompt tokens against ~3,500 for two real photos,
 so it under-tests both latency and output shape. Measure with real photos before drawing
@@ -251,7 +229,25 @@ Never commit `.env`, `data/`, or photos.
 1. **Existing items have terse descriptions.** Items saved before the verbose prompt landed have
    ~60-char descriptions; new recognitions produce ~500. Search quality is uneven until those
    boxes are re-recognised from photos. No migration path — it needs new photos.
-2. **OpenRouter credit.** See above; $10 takes the daily cap from ~50 to 1000.
+2. **Provider quotas.** Confirm current account limits with the provider before changing fallback policy.
 3. **Proxy timeout unverified.** See the timeout stack section.
 4. **Untracked in the working tree:** `Home Inventory mockup.html` (the original design reference).
    It is not committed.
+
+## September 17 reliability changes
+
+Camera investigation targeted iPhone/Comet. Before changes, 24-hour application logs showed one
+403 and three 201 responses for `/api/drafts/new/`; this is evidence of a rejected request, not
+proof of the cause of every silent camera return. The old camera input was detached and its
+browser-decode failure path aborted without trying the server's HEIC decoder.
+
+Snap now uses persistent inputs, focus/visibility recovery when files are present without change,
+a bounded browser conversion attempt, server decoding fallback, refreshed session/CSRF, and a
+visible retry that reuses a client UUID. Retry identity is restricted to the draft owner; an active
+upload owns its UUID directory so concurrent attempts cannot overwrite it. Native camera behavior
+on the user's iPhone/Comet is not reproducible in desktop browser automation.
+
+The browser regression suite includes over-limit merge preservation, current-location cache
+restoration, decoder rejection/stall, missing change events, a lost successful upload response,
+and a stalled network request. Run the suite before release; do not interpret these simulations
+as a physical iPhone camera acceptance test.

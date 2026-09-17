@@ -53,15 +53,24 @@ Archived boxes appear in an owner-only list on the home page. Restore one there,
 
 Box create/edit accepts optional `location` (free text, up to 120 characters). Omitting it on edit preserves the location; an empty string clears it. Owner forms suggest locations currently assigned to boxes. Locations appear in box lists, details, and search results.
 
-The index offers two searches, chosen explicitly: keyword (the default, hits `/api/search/` and is instant) and smart search (`/api/search/ai/`, seconds). The URL keeps the original `mode=name` / `mode=ai` values. A smart search that is unavailable still falls back to keyword search; a keyword search that finds nothing offers to escalate. A result links to its box carrying `?q=` and `?mode=`, so the box's back arrow returns to the results rather than the index. Smart results are cached in `sessionStorage` for that return, so it does not spend a second call against the rate limit.
+The index offers two searches, chosen explicitly: keyword (the default, hits `/api/search/` and is instant) and smart search (`/api/search/ai/`, seconds). The URL keeps the original `mode=name` / `mode=ai` values. A smart search that is unavailable still falls back to keyword search; a keyword search that finds nothing offers to escalate. A result links to its box carrying `?q=` and `?mode=`, so the box's back arrow returns to the results rather than the index. Smart results are cached in `sessionStorage` for that return. Cached IDs/revisions are checked against current inventory; box details are refreshed and changed or missing items trigger a new smart search.
 
 ## Photos and AI
 
+Snap an item keeps its camera input attached to the page and offers Choose from Photos as an
+alternative. After capture, browser conversion has a 15-second ceiling; unsupported/stalled decoding
+falls back to the original file and server-side JPEG/PNG/HEIC decoding, subject to the 10 MB limit.
+Upload/session checks have a 60-second ceiling, refresh CSRF after camera return, and keep the
+selected photo available for retry or sign-in without a page reload. A per-photo `upload_id` UUID
+returns the existing owner draft after an uncertain response instead of creating a duplicate.
+The selected file is held in page memory only; reloading or the OS discarding the tab loses it.
+
+
 Accept 1–4 JPEG, PNG, or HEIC photos, at most 10 MB each/25 MB total, bounded decoded pixels and 8 MB normalized output. The browser and server independently resize and re-encode uploads as RGB JPEG with metadata removed.
 
-Photo save/cancel makes files inaccessible immediately. Files are removed after commit; failed deletion is retried. Draft expiry is 24 hours, with cleanup every 15 minutes when the supplied timer is installed. Never serve the draft directory from the reverse proxy. Backups exclude photo files and remove temporary draft payloads.
+Photo save/cancel makes files inaccessible immediately. Files are removed after commit; failed deletion is retried. Draft expiry is 24 hours, with cleanup every 15 minutes when the supplied timer is installed. Never serve the draft directory from the reverse proxy. Backups exclude photo files and remove temporary draft payloads, including transcripts and owner notes. Save/cancel/expiry also clears these source fields in the database; cleanup scrubs previously closed drafts. Existing backup files are not rewritten.
 
-Recognition and AI search use the same configurable provider chain and validated response schemas. Results require owner review, and no provider failure escalates to a paid model. See `handoff.md` for provider ordering, timeout constraints, failure semantics, and measured behavior.
+Recognition and AI search use the same configurable provider chain and validated response schemas. Results require owner review, with Fireworks first (the configured paid account), then configured Gemini and OpenRouter fallbacks. See `handoff.md` for provider ordering, timeout constraints, failure semantics, and measured behavior.
 
 Provider processing is external even though the inventory is local. Local deletion does not prove provider deletion. Provider/account-specific retention has not been established for real household images. [Certain]
 
@@ -76,7 +85,7 @@ Provider processing is external even though the inventory is local. Local deleti
 npm run test:ui
 # Explicit live requests using generated non-sensitive label images:
 .venv/bin/python manage.py check_ai --provider fireworks
-.venv/bin/python manage.py check_ai --provider nvidia
+.venv/bin/python manage.py check_ai --provider gemini
 .venv/bin/python manage.py check_ai --provider openrouter
 .venv/bin/python manage.py check_ai --provider auto
 ```
