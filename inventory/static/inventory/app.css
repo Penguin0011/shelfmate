@@ -235,7 +235,7 @@ body.searching [aria-label="Your boxes"]{display:none}
 /* ---------- box index ---------- */
 .group-head{
   display:flex;align-items:center;justify-content:space-between;gap:12px;
-  padding:9px var(--pad);border-bottom:1px solid var(--ink);font-size:12px;letter-spacing:.11em;
+  padding:9px var(--pad);border-bottom:1px solid var(--ink);font-size:13px;letter-spacing:.09em;
 }
 .group-head>span:first-child{display:flex;align-items:center;gap:9px}
 .group-mark{width:9px;height:9px;background:var(--red);flex:none}
@@ -465,8 +465,8 @@ dialog::backdrop{background:#000000d9}
   .box-row:hover .box-preview{color:var(--prose)}
   .box-changed{
     display:flex;flex:none;align-items:center;justify-content:flex-end;
-    width:132px;padding-right:var(--pad);color:var(--muted);
-    font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+    width:140px;padding-right:var(--pad);color:var(--muted);
+    font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
     font-variant-numeric:tabular-nums;white-space:nowrap;
   }
 
