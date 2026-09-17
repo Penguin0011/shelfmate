@@ -482,19 +482,14 @@ dialog::backdrop{background:#000000d9}
   .ask input{min-height:44px;padding-block:8px}
   .mode-switch{order:2;flex:none;align-self:flex-end}
   .mode-option{min-height:42px}
-  /* Review & add: what you gave the AI (photos, transcript, filing) stays put on the left while
-     the entries it produced scroll on the right. Short fields pair up; the description stays wide. */
-  #draft-editor{display:grid;grid-template-columns:340px minmax(0,1fr);column-gap:44px;align-items:start}
-  .draft-side{position:sticky;top:20px}
-  .draft-side .photo-grid{grid-template-columns:repeat(3,1fr)}
-  .draft-side .field{margin-top:18px}
-  .draft-row{display:grid;grid-template-columns:1fr 1fr;column-gap:24px;row-gap:12px;margin-top:0;margin-bottom:14px}
+  /* Review & add uses the whole sheet. Each entry is one compact card: the two short fields share
+     a row and the description keeps the full width, so a long list scrolls in fewer screens. */
+  .draft-row{display:grid;grid-template-columns:1fr 1fr;column-gap:24px;row-gap:12px}
   .draft-row>*{grid-column:1/-1}
   .draft-row .field{margin:0}
   .draft-row>.field:nth-of-type(2){grid-column:1;grid-row:2}
   .draft-row>.field:nth-of-type(4){grid-column:2;grid-row:2}
   .draft-row>.field:nth-of-type(3){grid-row:3}
-  .draft-main .save-bar{position:sticky;bottom:0}
 
   /* Descriptions are written long for the search model. Given the width they can sit beside the
      name instead of under it, so a box reads as a table rather than a stack. */
