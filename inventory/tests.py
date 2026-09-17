@@ -673,6 +673,33 @@ class DraftContextTests(TestCase):
             self.assertNotIn('not itself a source of items',sent['content'][0]['text'])
 
 class QuickSnapTests(TestCase):
+    @override_settings(SECURE_SSL_REDIRECT=False)
+    def test_camera_upload_retry_reuses_draft_and_checks_owner(self):
+        import uuid
+        owner = get_user_model().objects.create_user('camera-owner', is_staff=True)
+        self.client.force_login(owner)
+        with tempfile.TemporaryDirectory() as folder, override_settings(PHOTO_ROOT=Path(folder)):
+            upload_id = str(uuid.uuid4())
+            image = io.BytesIO()
+            Image.new('RGB', (64, 64), 'white').save(image, format='HEIF')
+            payload = {'upload_id': upload_id, 'photos': SimpleUploadedFile('camera.heic', image.getvalue(), content_type='image/heic')}
+            first = self.client.post('/api/drafts/new/', payload)
+            self.assertEqual(first.status_code, 201)
+            retry = self.client.post('/api/drafts/new/', {'upload_id': upload_id})
+            self.assertEqual(retry.status_code, 200)
+            self.assertEqual(retry.json()['id'], first.json()['id'])
+            self.assertEqual(Draft.objects.count(), 1)
+            draft = Draft.objects.get()
+            self.assertEqual(Image.open(drafts.directory(draft)/draft.files[0]).format, 'JPEG')
+            other = get_user_model().objects.create_user('another-owner', is_staff=True)
+            self.client.force_login(other)
+            self.assertEqual(self.client.post('/api/drafts/new/', {'upload_id': upload_id}).status_code, 404)
+            self.assertEqual(self.client.post('/api/drafts/new/', {'upload_id': '../bad'}).status_code, 400)
+            in_flight = uuid.uuid4()
+            (Path(folder)/str(in_flight)).mkdir()
+            self.assertEqual(self.client.post('/api/drafts/new/', {'upload_id': str(in_flight), 'transcript': 'retry'}).status_code, 400)
+            self.assertTrue((Path(folder)/str(in_flight)).exists(), 'a competing retry must not remove the active upload')
+
     def test_box_is_chosen_while_recognition_runs_without_discarding_it(self):
         buckets.clear()
         owner=get_user_model().objects.create_user('snapper',is_staff=True)

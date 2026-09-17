@@ -1,3 +1,4 @@
+import uuid
 from django.http import JsonResponse, FileResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -24,7 +25,17 @@ def create(request, number=None):
     # No number means a quick snap from the home screen: recognition starts now, the box is chosen
     # while it runs. save() refuses a draft that never got one.
     box = get_object_or_404(Box, number=number, retired=False) if number is not None else None
-    draft = drafts.upload(request.user, box, request.FILES.getlist('photos'), string(request.POST, 'transcript', 5000), string(request.POST, 'context', 1000))
+    upload_id = request.POST.get('upload_id')
+    if upload_id is not None:
+        try:
+            upload_id = uuid.UUID(upload_id)
+        except (ValueError, AttributeError):
+            raise Invalid('Invalid upload ID')
+        existing = Draft.objects.filter(pk=upload_id).first()
+        if existing:
+            # Retry after a lost response returns the same receipt, never a duplicate draft.
+            return JsonResponse(data(get_object_or_404(Draft, pk=upload_id, owner=request.user)))
+    draft = drafts.upload(request.user, box, request.FILES.getlist('photos'), string(request.POST, 'transcript', 5000), string(request.POST, 'context', 1000), draft_id=upload_id)
     return JsonResponse(data(draft), status=201)
 
 

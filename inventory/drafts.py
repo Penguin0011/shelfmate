@@ -40,14 +40,17 @@ def cleanup_files(draft):
     return True
 
 
-def upload(owner, box, photos, transcript='', context=''):
+def upload(owner, box, photos, transcript='', context='', draft_id=None):
     if not photos and not transcript:
         raise Invalid('Add photos or a spoken description')
     if len(photos) > 4 or sum(p.size for p in photos) > 25 * 1024 * 1024:
         raise Invalid('Upload at most 4 photos, 25 MB total')
-    draft = Draft(owner=owner, box=box, transcript=transcript, context=context)
+    draft = Draft(id=draft_id or uuid.uuid4(), owner=owner, box=box, transcript=transcript, context=context)
     folder = directory(draft)
-    folder.mkdir(mode=0o700, parents=True)
+    try:
+        folder.mkdir(mode=0o700, parents=True)
+    except FileExistsError:
+        raise Invalid('This photo is already uploading. Retry shortly to recover its draft.')
     normalized = 0
     try:
         for photo in photos:
