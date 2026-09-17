@@ -355,13 +355,13 @@ if(document.querySelector('.pick-item')) {
   selectionChanged();
 }
 if(new URLSearchParams(location.search).has('login'))loginForm();
-// Two searches, chosen by the owner rather than guessed at. Name search hits the database and is
-// instant; the AI reads the saved descriptions and takes seconds, so it is asked for explicitly.
+// Two searches, chosen by the owner rather than guessed at. Keyword search hits the database and is
+// instant; smart search reads the saved descriptions and takes seconds, so it is asked for explicitly.
 // The old always-AI-first fallback stays for the case where the owner did ask and it is unavailable.
 const MODES = {
-  name: {title:'Name matches', hint:'Matches names, descriptions and alternate names. Instant.',
-         placeholder:'Search by name', working:'Searching your boxes…'},
-  ai:   {title:'AI matches', hint:'Describe what you need and the AI reads every saved description. Takes a few seconds.',
+  name: {title:'Keyword matches', hint:'Matches names, descriptions and alternate names. Instant.',
+         placeholder:'Search by keyword', working:'Searching your boxes…'},
+  ai:   {title:'Smart matches', hint:'Describe what you need and it reads every saved description. Takes a few seconds.',
          placeholder:'Describe what you need', working:'Analyzing your inventory…'},
 };
 const mode = () => ($('#search-form') ? $('#search-form').mode.value : 'name');
@@ -394,10 +394,10 @@ function showResults(q, matches, ai) {
   $('#results-count').textContent = matches.length ? `${matches.length} found` : '';
   $('#result-list').innerHTML = matches.length
     ? matches.map(i => resultRow(i, ai, q)).join('')
-    : `<div class="empty result-empty"><h3>Nothing named that.</h3><p>No entry matches “${esc(q)}”.</p>`
-      + (ai ? '<p class="hint">The AI read every saved description and found nothing close. Try different words, or ask the owner to check.</p>'
-            : '<div class="actions"><button type="button" id="escalate">Ask the house instead</button></div>'
-              + '<p class="hint">A name search only matches the words written down. The AI reads the full descriptions and can work from a rough description.</p>')
+    : `<div class="empty result-empty"><h3>${ai ? 'No close match.' : 'Nothing named that.'}</h3><p>No entry matches “${esc(q)}”.</p>`
+      + (ai ? '<p class="hint">Smart search read every saved description and found nothing close. Try different words, or ask the owner to check.</p>'
+            : '<div class="actions"><button type="button" id="escalate">Try smart search instead</button></div>'
+              + '<p class="hint">A keyword search only matches the words written down. Smart search reads the full descriptions and can work from a rough description.</p>')
       + '</div>';
   if ($('#escalate')) $('#escalate').onclick = () => { setMode('ai'); runSearch(); };
 }
@@ -422,7 +422,7 @@ async function runSearch({restore = false} = {}) {
       catch (unavailable) {
         if (version !== searchVersion) return;
         ai = false;
-        working('AI unavailable — searching your boxes by name instead…');
+        working('Smart search unavailable — matching keywords instead…');
         result = await api(`/api/search/?q=${encodeURIComponent(q)}`, undefined, 'GET');
       }
     } else result = await api(`/api/search/?q=${encodeURIComponent(q)}`, undefined, 'GET');
