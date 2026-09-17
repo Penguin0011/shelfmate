@@ -52,6 +52,16 @@ FIREWORKS_MODEL = os.getenv('FIREWORKS_MODEL', 'accounts/fireworks/models/glm-5p
 # past any timeout we can afford. Pinning the effort holds it to ~600 tokens and ~26s for the same
 # seven valid entries, so this is a latency bound, not a quality knob. Fireworks-only parameter.
 FIREWORKS_EXTRA = {'reasoning_effort': os.getenv('FIREWORKS_REASONING_EFFORT', 'high')}
+# Search is a different purchase from recognition. It re-sends the whole inventory every question,
+# so almost all of its input is cache hits, and deepseek bills those at $0.007/M against glm's
+# $0.03/M -- 4x cheaper on the term that dominates. glm wins on output volume but not by enough:
+# measured per search, deepseek $0.00174 vs glm $0.00291. Recognition stays on glm, which is the
+# only one of the two that returns anything at all for a photo.
+FIREWORKS_SEARCH_MODEL = os.getenv('FIREWORKS_SEARCH_MODEL', 'accounts/fireworks/models/deepseek-v4p1-flash')
+# Empty, not None: None means "inherit FIREWORKS_EXTRA", which would hand deepseek a reasoning
+# effort tuned for glm. Deepseek needs no cap here -- it reasons ~1.5k tokens on a search, not the
+# 32k it burns on a photo.
+FIREWORKS_SEARCH_EXTRA = {'reasoning_effort': e} if (e := os.getenv('FIREWORKS_SEARCH_REASONING_EFFORT', '')) else {}
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-3.1-flash-lite')
 # Pin a vision model; the generic free router may select a non-generative classifier.
 OPENROUTER_MODEL = os.getenv('OPENROUTER_MODEL', 'dots-studio/dots-3-note-preview:free')

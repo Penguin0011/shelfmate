@@ -69,10 +69,12 @@ def request(provider, key, model, url, messages, timeout=None, extra=None):
         raise Retryable('Invalid AI response') from exc
 
 
-def _run(messages, validate):
+def _run(messages, validate, fireworks_model=None, fireworks_extra=None):
     # Most reliable first, then fastest; a slow provider must never starve the ones behind it.
+    # Only the Fireworks row is task-tunable: the failovers are general-purpose, and a model name
+    # or a reasoning_effort meant for Fireworks is a 400 from any of them.
     providers = [
-        ('Fireworks', settings.FIREWORKS_API_KEY, settings.FIREWORKS_MODEL, 'https://api.fireworks.ai/inference/v1/chat/completions', settings.FIREWORKS_EXTRA),
+        ('Fireworks', settings.FIREWORKS_API_KEY, fireworks_model or settings.FIREWORKS_MODEL, 'https://api.fireworks.ai/inference/v1/chat/completions', settings.FIREWORKS_EXTRA if fireworks_extra is None else fireworks_extra),
         ('Gemini', settings.GEMINI_API_KEY, settings.GEMINI_MODEL, 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', None),
         ('OpenRouter', settings.OPENROUTER_API_KEY, settings.OPENROUTER_MODEL, 'https://openrouter.ai/api/v1/chat/completions', None),
     ]
@@ -111,12 +113,15 @@ def _run(messages, validate):
     raise AIError('AI unavailable; retry later or enter items manually')
 
 
-def complete(messages, validate):
+def complete(messages, validate, fireworks_model=None, fireworks_extra=None):
+    # The two Fireworks tasks want different models: photo recognition pays for vision that works,
+    # search pays for a cheap cached-input rate on an inventory it re-sends every question. The
+    # model and its parameters travel together -- reasoning_effort is tuned per model, not per task.
     # ponytail: one process, two remote calls at once; add a queue only if needed.
     if not slots.acquire(blocking=False):
         raise AIError('AI is busy; try again shortly')
     try:
-        return _run(messages, validate)
+        return _run(messages, validate, fireworks_model, fireworks_extra)
     finally:
         slots.release()
 

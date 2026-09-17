@@ -1,4 +1,5 @@
 import json
+from django.conf import settings
 from django.test import TestCase, Client, override_settings
 from django.contrib.auth import get_user_model
 from .models import Box, Item, Flag
@@ -321,7 +322,7 @@ class AITests(TestCase):
         for n in range(12):
             Item.objects.create(box=box, name=f'Item {n}', description='D'*1800, aliases='A'*900)
         captured = {}
-        def capture(messages, validate):
+        def capture(messages, validate, *args):
             captured['payload'] = json.loads(messages[1]['content'])['inventory']
             return []
         with override_settings(AI_SEARCH_BUDGET=12500):
@@ -347,7 +348,10 @@ class AITests(TestCase):
         box = Box.objects.create(number=4, category='Parts')
         Item.objects.create(box=box, name='M3 screws', description='stainless', aliases='hex')
         captured = {}
-        with patch('inventory.ai.complete', side_effect=lambda messages, validate: captured.setdefault('m', messages) and []):
+        def grab(messages, validate, *args):
+            captured['m'], captured['args'] = messages, args
+            return []
+        with patch('inventory.ai.complete', side_effect=grab):
             self.client.post('/api/search/ai/', json.dumps({'question':'what fits an M3 thread'}), content_type='application/json')
         messages = captured['m']
         inventory_message = messages[1]['content']
@@ -357,6 +361,11 @@ class AITests(TestCase):
         self.assertEqual(json.loads(messages[2]['content'])['question'], 'what fits an M3 thread')
         # Both stay untrusted: the inventory is model-written from photos, so it is not system input.
         self.assertTrue(all(m['role'] == 'user' for m in messages[1:]))
+        # Search must ask for the search model, not the vision one: they are priced for opposite
+        # workloads, and search silently running on the vision model is a pure cost regression.
+        self.assertEqual(captured['args'][0], settings.FIREWORKS_SEARCH_MODEL)
+        self.assertEqual(captured['args'][1], settings.FIREWORKS_SEARCH_EXTRA)
+        self.assertNotEqual(settings.FIREWORKS_SEARCH_MODEL, settings.FIREWORKS_MODEL)
     def test_provider_rejection_falls_through_to_the_next_provider(self):
         # 400 bad parameters, a stale key, or a model retired out from under us are all provider-level
         # failures that say nothing about the providers behind them. Only a content refusal stops the
