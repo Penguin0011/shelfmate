@@ -394,6 +394,26 @@ class AITests(TestCase):
                 with self.assertRaises(ai.Refused):
                     ai.complete([], entries)
                 self.assertEqual(call.call_count, 1)
+    def test_a_sloppy_reply_keeps_its_usable_matches(self):
+        # The old validator rejected the whole list for a 21st row or one missing explanation, and
+        # _run treats that Invalid exactly like a timeout -- so a good answer was silently traded
+        # for the next provider's, at the cost of a second call.
+        from .ai_views import matches
+        from .validation import Invalid
+        kept = matches([{'id': i, 'explanation': 'why'} for i in range(1, 22)])
+        self.assertEqual(len(kept), 20, 'one row over the cap must not discard the other twenty')
+        self.assertEqual([r['id'] for r in kept], list(range(1, 21)))
+        mixed = matches([{'id': 1, 'explanation': ''}, {'id': 2}, 'junk',
+                         {'id': 3, 'explanation': 'x'*900}, {'explanation': 'no id'},
+                         {'id': 4, 'explanation': 'good'}])
+        self.assertEqual([r['id'] for r in mixed], [1, 2, 4], 'skip only the rows that are unusable')
+        self.assertEqual(mixed[0]['explanation'], '', 'a missing explanation loses the words, not the match')
+        # Genuinely malformed still falls through, rather than reading as "nothing found".
+        with self.assertRaises(Invalid):
+            matches([{'no': 'id'}, 'junk'])
+        with self.assertRaises(Invalid):
+            matches({'not': 'a list'})
+        self.assertEqual(matches([]), [], 'an honest empty answer is not an error')
     def test_search_rejects_hallucination_and_reloads_location(self):
         buckets.clear()
         box=Box.objects.create(number=1,category='PC')

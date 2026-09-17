@@ -102,13 +102,24 @@ def analyze(request, pk):
 
 
 def matches(value):
-    if not isinstance(value, list) or len(value)>20:
+    if not isinstance(value, list):
         raise Invalid('Invalid search response')
+    # Take what is usable rather than discarding the reply. The prompt asks for at most 20 entries
+    # and an explanation on each, but a model handing back a 21st row, or one row it forgot to
+    # explain, used to throw away every other match with it -- and _run cannot tell that Invalid
+    # from a timeout, so a good answer was silently swapped for the next provider's.
     result=[]
-    for row in value:
+    for row in value[:20]:
         if not isinstance(row, dict):
-            raise Invalid('Invalid match')
-        result.append({'id':integer(row,'id'), 'explanation':string(row,'explanation',500,True)})
+            continue
+        try:
+            result.append({'id':integer(row,'id'), 'explanation':string(row,'explanation',500)})
+        except Invalid:
+            continue
+    # A reply where nothing at all survives is malformed rather than merely sloppy, so it still
+    # falls through to the next provider instead of reading to the owner as "nothing found".
+    if value and not result:
+        raise Invalid('Invalid search response')
     return result
 
 
