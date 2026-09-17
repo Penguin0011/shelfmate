@@ -112,7 +112,9 @@ configuration for runtime calls and the `check_ai` diagnostic:
 | 3 | OpenRouter | `dots-studio/dots-3-note-preview:free` |
 
 Only configured providers are attempted. Fireworks leads for reliability and uses the configured
-paid account; there is no NVIDIA path. Recognition sends `reasoning_effort=high` by default;
+paid account; there is no NVIDIA path. Search uses a cheaper Fireworks model,
+`accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b` (`FIREWORKS_SEARCH_MODEL`, pinned in
+`/etc/inventory.env`). Recognition sends `reasoning_effort=high` by default;
 search sends no reasoning effort unless explicitly configured. The two Fireworks model/effort
 settings are independent. Empty reasoning-effort environment values omit that parameter.
 Provider model availability and account billing must be checked with the provider when changing them.
@@ -232,9 +234,11 @@ Never commit `.env`, `data/`, or photos.
 
 ## Open items
 
-1. **Existing items have terse descriptions.** Items saved before the verbose prompt landed have
-   ~60-char descriptions; new recognitions produce ~500. Search quality is uneven until those
-   boxes are re-recognised from photos. No migration path — it needs new photos.
+1. **Description standard changed on 2026-09-17.** The recognition prompt no longer states a
+   length target (a target got padded with origin, warnings and button labels) and carries a
+   NOISE RULE instead. `manage.py rewrite_descriptions` brings model-written items onto the new
+   standard without photos: dry run by default, `--apply` writes and bumps item revisions.
+   Hand-typed descriptions (no draft reference) are never touched. Run it after the deploy.
 2. **Provider quotas.** Confirm current account limits with the provider before changing fallback policy.
 3. **Proxy timeout unverified.** See the timeout stack section.
 4. **Untracked in the working tree:** `Home Inventory mockup.html` (the original design reference).

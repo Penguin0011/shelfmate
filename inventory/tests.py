@@ -2,7 +2,7 @@ import json
 from django.conf import settings
 from django.test import TestCase, Client, override_settings
 from django.contrib.auth import get_user_model
-from .models import Box, Item, Flag
+from .models import Box, Draft, Item, Flag
 from .access import buckets
 
 @override_settings(SECURE_SSL_REDIRECT=False, SESSION_COOKIE_SECURE=False)
@@ -859,3 +859,25 @@ class InterfaceTests(TestCase):
         self.client.force_login(owner)
         self.assertContains(self.client.get('/'),'data-action="new-box"')
         self.assertContains(self.client.get('/flags'),'All caught up.')
+
+
+class RewriteDescriptionTests(TestCase):
+    def test_rewrite_command_shortens_bumps_revision_and_refuses_growth(self):
+        from io import StringIO
+        from unittest.mock import patch
+        from django.core.management import call_command
+        box = Box.objects.create(number=6, category='Office')
+        draft = Draft.objects.create(owner=get_user_model().objects.create_user('o', password='x', is_staff=True), box=box, state='saved')
+        typed = Item.objects.create(box=box, name='Ski boots', description='In the grey bin. Made in China.', aliases='')
+        tape = Item.objects.create(box=box, draft=draft, draft_row=0, name='Scotch tape', description='Matte tape 3/4 inch by 300 inches. Made in China. Appears new.', aliases='tape')
+        glue = Item.objects.create(box=box, draft=draft, draft_row=1, name='Loctite 401', description='Cyanoacrylate glue.', aliases='glue')
+        reply = [{'id': typed.pk, 'description': 'In the grey bin.'}, {'id': tape.pk, 'description': 'Matte tape 3/4 inch by 300 inches.'}, {'id': glue.pk, 'description': 'Cyanoacrylate glue, padded out with useless words.'}, {'id': 999, 'description': 'x'}]
+        with patch('inventory.ai.complete', return_value=reply):
+            out = StringIO(); call_command('rewrite_descriptions', stdout=out)
+            tape.refresh_from_db(); self.assertIn('Made in China', tape.description, 'dry run must not write')
+            self.assertIn('1 of 2', out.getvalue())
+            call_command('rewrite_descriptions', '--apply', stdout=StringIO())
+        tape.refresh_from_db(); glue.refresh_from_db()
+        self.assertEqual((tape.description, tape.revision), ('Matte tape 3/4 inch by 300 inches.', 1))
+        self.assertEqual((glue.description, glue.revision), ('Cyanoacrylate glue.', 0), 'a longer rewrite is padding and is skipped')
+        typed.refresh_from_db(); self.assertEqual(typed.description, 'In the grey bin. Made in China.', 'hand-typed descriptions are never rewritten')

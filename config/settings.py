@@ -50,7 +50,7 @@ AUTH_PASSWORD_VALIDATORS = [ {'NAME': 'django.contrib.auth.password_validation.M
 FIREWORKS_MODEL = os.getenv('FIREWORKS_MODEL', 'accounts/fireworks/models/glm-5p3-flash')
 # Recognition limits reasoning; search uses its own independently configurable setting.
 FIREWORKS_EXTRA = {'reasoning_effort': v} if (v := os.getenv('FIREWORKS_REASONING_EFFORT', 'high')) else {}
-FIREWORKS_SEARCH_MODEL = os.getenv('FIREWORKS_SEARCH_MODEL', 'accounts/fireworks/models/glm-5p3-flash')
+FIREWORKS_SEARCH_MODEL = os.getenv('FIREWORKS_SEARCH_MODEL', 'accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b')
 FIREWORKS_SEARCH_EXTRA = {'reasoning_effort': e} if (e := os.getenv('FIREWORKS_SEARCH_REASONING_EFFORT', '')) else {}
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-3.1-flash-lite')
 # Pin a vision model; the generic free router may select a non-generative classifier.
