@@ -360,9 +360,9 @@ if(new URLSearchParams(location.search).has('login'))loginForm();
 // The old always-AI-first fallback stays for the case where the owner did ask and it is unavailable.
 const MODES = {
   name: {title:'Name matches', hint:'Matches names, descriptions and alternate names. Instant.',
-         placeholder:'Search by name', working:'Searching names…'},
+         placeholder:'Search by name', working:'Searching your boxes…'},
   ai:   {title:'AI matches', hint:'Describe what you need and the AI reads every saved description. Takes a few seconds.',
-         placeholder:'Describe what you need', working:'Reading the saved descriptions…'},
+         placeholder:'Describe what you need', working:'Analyzing your inventory…'},
 };
 const mode = () => ($('#search-form') ? $('#search-form').mode.value : 'name');
 const setMode = value => { const r = $(`#search-form input[value="${value}"]`); if (r) { r.checked = true; modeChanged(); } };
@@ -371,6 +371,8 @@ const searchQuery = (q, m) => `q=${encodeURIComponent(q)}${m === 'ai' ? '&mode=a
 // ponytail: per-tab cache so returning to AI results does not spend another call against the
 // ai-search rate limit. Drop it if results ever need to reflect edits made in another tab.
 const cached = (key, value) => { try { if (value === undefined) return JSON.parse(sessionStorage.getItem(key)); sessionStorage.setItem(key, JSON.stringify(value)); } catch { return null; } };
+
+const working = text => { const p = document.createElement('p'); p.className = 'analyzing'; p.textContent = text; $('#result-list').replaceChildren(p); };
 
 function modeChanged() {
   const m = MODES[mode()];
@@ -401,16 +403,16 @@ function showResults(q, matches, ai) {
 }
 
 let searchVersion = 0;
-async function runSearch() {
+async function runSearch({restore = false} = {}) {
   const q = $('#query').value.trim(); if (!q) { $('#query').focus(); return; }
   const wanted = mode(), version = ++searchVersion;
   document.body.classList.add('searching');
   history.replaceState(null, '', `/?${searchQuery(q, wanted)}`);
   const key = `ai-search:${q}`;
-  const hit = wanted === 'ai' && cached(key);
+  const hit = restore && wanted === 'ai' && cached(key);
   if (hit) { showResults(q, hit, true); $('#search-results').hidden = false; return; }
   $('#search-results').hidden = false;
-  $('#result-list').textContent = MODES[wanted].working;
+  working(MODES[wanted].working);
   $('#results-title').textContent = MODES[wanted].title;
   $('#results-count').textContent = '';
   try {
@@ -420,7 +422,7 @@ async function runSearch() {
       catch (unavailable) {
         if (version !== searchVersion) return;
         ai = false;
-        $('#result-list').textContent = 'AI is unavailable — searching names instead…';
+        working('AI unavailable — searching your boxes by name instead…');
         result = await api(`/api/search/?q=${encodeURIComponent(q)}`, undefined, 'GET');
       }
     } else result = await api(`/api/search/?q=${encodeURIComponent(q)}`, undefined, 'GET');
@@ -444,7 +446,7 @@ if ($('#search-form')) {
   });
   const params = new URLSearchParams(location.search), q = params.get('q');
   if (params.get('mode') === 'ai') setMode('ai'); else modeChanged();
-  if (q) { $('#query').value = q.slice(0, 500); runSearch(); }
+  if (q) { $('#query').value = q.slice(0, 500); runSearch({restore: true}); }
   if (state.owner) api('/api/drafts/', undefined, 'GET').then(r => { if (r.drafts.length) { $('#draft-list').hidden = false; $('#draft-links').innerHTML = r.drafts.map(d => `<a class="box-row" href="/drafts/${d.id}"><span class="row-number" aria-hidden="true">${String(d.box).padStart(2, '0')}</span><span class="box-copy"><span class="box-category">${d.analyzing ? 'Recognizing…' : 'Continue adding'}</span><span class="box-sub">Box ${d.box} · ${d.analyzing ? 'AI is still working' : 'unfinished draft'}</span></span></a>`).join(''); } }).catch(e => notice(e.message, true));
 }
 

@@ -218,6 +218,7 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
   border:1px solid var(--red);color:var(--red);font-size:10px;letter-spacing:.14em;white-space:nowrap;
 }
 .result-empty{padding:30px var(--pad) 34px}
+#result-list>.analyzing{margin:16px var(--pad) 20px}
 .result-empty .actions{max-width:320px}
 
 /* While results are up the index is a distraction, not context: the answer gets the sheet to
