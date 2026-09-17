@@ -365,7 +365,11 @@ class AITests(TestCase):
         # workloads, and search silently running on the vision model is a pure cost regression.
         self.assertEqual(captured['args'][0], settings.FIREWORKS_SEARCH_MODEL)
         self.assertEqual(captured['args'][1], settings.FIREWORKS_SEARCH_EXTRA)
-        self.assertNotEqual(settings.FIREWORKS_SEARCH_MODEL, settings.FIREWORKS_MODEL)
+        # The two paths share a model but not its reasoning: recognition caps it to stay inside the
+        # timeout, search must not, or it answers real questions with nothing. Inheriting the
+        # recognition cap here is silent and costs recall, so pin the distinction down.
+        self.assertNotEqual(settings.FIREWORKS_SEARCH_EXTRA, settings.FIREWORKS_EXTRA)
+        self.assertEqual(settings.FIREWORKS_SEARCH_EXTRA, {})
     def test_provider_rejection_falls_through_to_the_next_provider(self):
         # 400 bad parameters, a stale key, or a model retired out from under us are all provider-level
         # failures that say nothing about the providers behind them. Only a content refusal stops the

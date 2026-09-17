@@ -55,15 +55,17 @@ FIREWORKS_MODEL = os.getenv('FIREWORKS_MODEL', 'accounts/fireworks/models/glm-5p
 # that trade because an analysis slower than the timeout returns nothing at all. Set the env var to
 # empty to send no effort at all and get the unbounded behaviour back. Fireworks-only parameter.
 FIREWORKS_EXTRA = {'reasoning_effort': v} if (v := os.getenv('FIREWORKS_REASONING_EFFORT', 'high')) else {}
-# Search is a different purchase from recognition. It re-sends the whole inventory every question,
-# so almost all of its input is cache hits, and deepseek bills those at $0.007/M against glm's
-# $0.03/M -- 4x cheaper on the term that dominates. glm wins on output volume but not by enough:
-# measured per search, deepseek $0.00174 vs glm $0.00291. Recognition stays on glm, which is the
-# only one of the two that returns anything at all for a photo.
-FIREWORKS_SEARCH_MODEL = os.getenv('FIREWORKS_SEARCH_MODEL', 'accounts/fireworks/models/deepseek-v4p1-flash')
-# Empty, not None: None means "inherit FIREWORKS_EXTRA", which would hand deepseek a reasoning
-# effort tuned for glm. Deepseek needs no cap here -- it reasons ~1.5k tokens on a search, not the
-# 32k it burns on a photo.
+# Same model as recognition, deliberately: deepseek's cheap cached-input rate looked like the
+# reason to split them, but on a real 127-item inventory cached input is ~$0.0002 either way and
+# the bill is output tokens. Deepseek spent 5.6k-8.7k of them per search at 64-96s, and on two of
+# three real questions ran the full 32k and returned nothing at all.
+FIREWORKS_SEARCH_MODEL = os.getenv('FIREWORKS_SEARCH_MODEL', 'accounts/fireworks/models/glm-5p3-flash')
+# What actually differs is the reasoning, and search wants it UNCAPPED. Capping it is not the free
+# latency win it is for recognition: at reasoning_effort=high glm answered "anything for soldering"
+# with unparseable output and "something to hold two boards while glue dries" with nothing, where
+# uncapped it finds seven soldering items and three kinds of tape. Uncapped search is 12-16s, well
+# inside budget, so there is nothing to buy by capping it. Empty, not None -- None would mean
+# "inherit FIREWORKS_EXTRA" and silently re-apply the recognition cap.
 FIREWORKS_SEARCH_EXTRA = {'reasoning_effort': e} if (e := os.getenv('FIREWORKS_SEARCH_REASONING_EFFORT', '')) else {}
 GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-3.1-flash-lite')
 # Pin a vision model; the generic free router may select a non-generative classifier.
