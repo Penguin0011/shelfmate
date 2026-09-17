@@ -3,12 +3,19 @@ const state = JSON.parse(document.querySelector('#bootstrap').textContent);
 const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let csrf, dialogHandler, dialogBusy = false;
-const ready = fetch('/api/session/', {credentials:'same-origin'}).then(r => { if (!r.ok) throw Error('Unable to start a session. Reload to try again.'); return r.json(); }).then(s => { csrf = s.csrfToken; });
+async function refreshSession(signal) {
+  const response = await fetch('/api/session/', {credentials:'same-origin', cache:'no-store', signal});
+  if (!response.ok) throw Error('Unable to start a session. Try again.');
+  const session = await response.json();
+  csrf = session.csrfToken;
+  return session;
+}
+const ready = refreshSession();
 function notice(message, error = false) { const n = $('#notice'); n.textContent = message; n.className = error ? 'error' : ''; n.hidden = false; }
 ready.catch(e => notice(e.message, true));
-async function api(url, data, method = 'POST') {
-  await ready;
-  const options = {method, credentials:'same-origin', headers:{'X-CSRFToken':csrf}};
+async function api(url, data, method = 'POST', signal) {
+  if (!csrf) await ready.catch(() => refreshSession(signal));
+  const options = {method, signal, credentials:'same-origin', headers:{'X-CSRFToken':csrf}};
   if (data instanceof FormData) options.body = data;
   else if (data !== undefined) { options.headers['Content-Type']='application/json'; options.body=JSON.stringify(data); }
   let response;
@@ -39,8 +46,8 @@ document.querySelectorAll('.close').forEach(b => b.addEventListener('click', () 
 function success(message, path = location.pathname) { sessionStorage.setItem('inventory-notice', message); location.assign(path); }
 const previous = sessionStorage.getItem('inventory-notice');
 if (previous) { notice(previous); sessionStorage.removeItem('inventory-notice'); }
-function loginForm() {
-  modal('Owner sign in', '<p class="hint">Household viewing stays open. Sign in to manage your inventory.</p>'+field('username','Username','','required autocomplete="username" maxlength="150"')+field('password','Password','','type="password" required autocomplete="current-password" maxlength="1024"'), 'Sign in', async f => { await api('/api/login/',Object.fromEntries(f)); success('Signed in as owner.'); });
+function loginForm(afterLogin) {
+  modal('Owner sign in', '<p class="hint">Household viewing stays open. Sign in to manage your inventory.</p>'+field('username','Username','','required autocomplete="username" maxlength="150"')+field('password','Password','','type="password" required autocomplete="current-password" maxlength="1024"'), 'Sign in', async f => { await api('/api/login/',Object.fromEntries(f)); if(afterLogin){$('#dialog').close();afterLogin();}else success('Signed in as owner.'); });
 }
 function boxForm(edit=false, restore=false) {
   const box=state.box;
@@ -163,11 +170,10 @@ function describeForm() {
   else $('#dialog').addEventListener('close', abort, {once:true});
 }
 // Each pick adds to the batch instead of replacing it: iOS pickers often return one photo at a time.
-// Photos are shrunk to the server's own 1536px working size before upload, which turns a 6 MB HEIC
-// frame into ~500 KB of JPEG. That is what makes HEIC and 48MP phone photos work: the browser decodes
-// the original and we hand the server a plain JPEG, so neither format nor megapixels ever reach it.
+// Shrink readable photos before upload. If the browser cannot decode one, the server can
+// normalize the original JPEG/PNG/HEIC, still subject to server size and pixel limits.
 const MAX_EDGE=1536;
-async function toUploadableJpeg(file) {
+async function decodeJpeg(file) {
   let bitmap;
   // imageOrientation bakes EXIF rotation into the pixels; canvas output carries no EXIF to rotate by.
   try { bitmap = await createImageBitmap(file, {imageOrientation:'from-image'}); }
@@ -183,25 +189,73 @@ async function toUploadableJpeg(file) {
     return new File([blob], file.name.replace(/\.[^.]+$/,'')+'.jpg', {type:'image/jpeg', lastModified:file.lastModified});
   } finally { bitmap.close(); }
 }
-// capture="environment" opens the rear camera directly on a phone; desktop browsers ignore it and
-// show a file picker, which is a fine fallback. Shares toUploadableJpeg with the upload modal so a
-// 48MP camera frame never leaves the device at full size.
-function snapItem() {
-  const input=document.createElement('input');
-  input.type='file'; input.accept='image/*'; input.capture='environment';
-  input.onchange=async () => {
-    const file=input.files&&input.files[0];
-    if(!file)return;
-    notice('Uploading your photo…');
-    try{
-      const shrunk=await toUploadableJpeg(file);
-      if(!shrunk)throw Error('That photo could not be read. Try again, or use Add items from photos.');
-      const data=new FormData(); data.append('photos',shrunk);
-      const saved=await api('/api/drafts/new/',data);
-      location.assign(`/drafts/${saved.id}?analyze=1`);
-    }catch(error){notice(error.message,true);}
-  };
-  input.click();
+// A stalled browser decoder must not prevent the server from reading a valid original photo.
+async function toUploadableJpeg(file) {
+  let timer;
+  try { return await Promise.race([decodeJpeg(file).catch(()=>null), new Promise(resolve=>{timer=setTimeout(()=>resolve(null),15000);})]); }
+  finally { clearTimeout(timer); }
+}
+
+const snapInput=$('#snap-photo'), libraryInput=$('#snap-library');
+let pendingSnap=null, snapBusy=false;
+function snapStatus(message,error=false){
+  const status=$('#snap-status');
+  status.textContent=message;status.className=error?'error':'hint';status.hidden=false;
+}
+function snapItem(){
+  if(snapBusy)return;
+  snapInput.value='';libraryInput.value='';
+  snapStatus('Take a photo and choose Use Photo. If the camera does not return it, choose from Photos below.');
+  snapInput.click();
+}
+async function uploadSnap(){
+  if(snapBusy||!pendingSnap)return;
+  snapBusy=true;
+  const button=$('[data-action="snap"]'), retry=$('#snap-retry'), choose=$('#snap-choose');
+  button.disabled=retry.disabled=choose.disabled=true;retry.hidden=true;
+  const controller=new AbortController();
+  let timer;
+  try{
+    snapStatus('Preparing your photo…');button.textContent='Preparing photo…';
+    if(!pendingSnap.file)pendingSnap.file=await toUploadableJpeg(pendingSnap.original)||pendingSnap.original;
+    if(pendingSnap.file.size>10*1024*1024)throw Error('This photo is over 10 MB. Choose a smaller copy from Photos.');
+    snapStatus('Uploading your photo… Keep this page open.');button.textContent='Uploading photo…';
+    timer=setTimeout(()=>controller.abort(),60000);
+    // Camera use can suspend a mobile browser for minutes. Check the current session/token.
+    const session=await refreshSession(controller.signal);
+    if(!session.owner){
+      snapStatus('Sign in to finish uploading. Your photo is still selected.',true);retry.hidden=false;
+      loginForm(uploadSnap);return;
+    }
+    const data=new FormData();data.append('photos',pendingSnap.file);data.append('upload_id',pendingSnap.id);
+    const saved=await api('/api/drafts/new/',data,'POST',controller.signal);
+    snapStatus('Photo received. Opening your draft…');
+    location.assign(`/drafts/${saved.id}?analyze=1`);
+  }catch(error){
+    snapStatus(controller.signal.aborted?'Upload timed out. Your photo is still selected; retry to recover or finish the same draft.':`${error.message} Your photo is still selected.`,true);
+    retry.hidden=false;
+  }finally{
+    clearTimeout(timer);snapBusy=false;
+    button.disabled=retry.disabled=choose.disabled=false;button.textContent='Snap an item';
+  }
+}
+function captureSnap(input){
+  const file=input.files&&input.files[0];
+  if(!file||snapBusy||pendingSnap?.original===file)return;
+  pendingSnap={original:file,file:null,id:crypto.randomUUID()};
+  uploadSnap();
+}
+if(snapInput){
+  for(const input of [snapInput,libraryInput]){
+    input.addEventListener('change',()=>captureSnap(input));
+    input.addEventListener('cancel',()=>snapStatus('No new photo selected. Take another photo or choose from Photos.'));
+  }
+  // Some mobile browser returns deliver focus/visibility before (or without) change.
+  const returned=()=>{if(!document.hidden)setTimeout(()=>{captureSnap(snapInput);captureSnap(libraryInput);},500);};
+  window.addEventListener('focus',returned);window.addEventListener('pageshow',returned);
+  document.addEventListener('visibilitychange',returned);
+  $('#snap-retry').onclick=uploadSnap;
+  $('#snap-choose').onclick=()=>{snapInput.value='';libraryInput.value='';libraryInput.click();};
 }
 function uploadForm() {
   const MAX=4, MAX_EACH=10*1024*1024, MAX_TOTAL=25*1024*1024;
@@ -237,10 +291,6 @@ function uploadForm() {
       const key=identity(original);
       if(staged.some(s=>s.key===key))continue;
       const shrunk=await toUploadableJpeg(original);
-      if(!shrunk && !['image/jpeg','image/png'].includes(original.type)){
-        problems.push(`${original.name}: this browser cannot read that format — export it as JPEG.`);
-        continue;
-      }
       // Fall back to the original when the browser cannot decode it but the server accepts the type.
       const file=shrunk||original;
       if(file.size>MAX_EACH){problems.push(`${original.name} is still over 10 MB.`);continue;}
@@ -366,8 +416,7 @@ const mode = () => ($('#search-form') ? $('#search-form').mode.value : 'name');
 const setMode = value => { const r = $(`.mode-switch input[value="${value}"]`); if (r) { r.checked = true; modeChanged(); } };
 // Back from a box lands on the results that sent you there, so the query travels with the link.
 const searchQuery = (q, m) => `q=${encodeURIComponent(q)}${m === 'ai' ? '&mode=ai' : ''}`;
-// ponytail: per-tab cache so returning to AI results does not spend another call against the
-// ai-search rate limit. Drop it if results ever need to reflect edits made in another tab.
+// Reuse AI ranking only after checking the current items; locations always come from the server.
 const cached = (key, value) => { try { if (value === undefined) return JSON.parse(sessionStorage.getItem(key)); sessionStorage.setItem(key, JSON.stringify(value)); } catch { return null; } };
 
 const working = text => { const p = document.createElement('p'); p.className = 'analyzing'; p.textContent = text; $('#result-list').replaceChildren(p); };
@@ -389,7 +438,7 @@ function showResults(q, matches, ai) {
   $('#result-list').innerHTML = matches.length
     ? matches.map(i => resultRow(i, ai, q)).join('')
     : `<div class="empty result-empty"><h3>${ai ? 'No close match.' : 'Nothing named that.'}</h3><p>No entry matches “${esc(q)}”.</p>`
-      + (ai ? '<p class="hint">Smart search read every saved description and found nothing close. Try different words, or ask the owner to check.</p>'
+      + (ai ? '<p class="hint">Smart search found no close match in the inventory details it received. Try different words, or ask the owner to check.</p>'
             : '<div class="actions"><button type="button" id="escalate">Try smart search instead</button></div>'
               + '<p class="hint">A keyword search only matches the words written down. Smart search reads the full descriptions and can work from a rough description.</p>')
       + '</div>';
@@ -404,12 +453,20 @@ async function runSearch({restore = false} = {}) {
   history.replaceState(null, '', `/?${searchQuery(q, wanted)}`);
   const key = `ai-search:${q}`;
   const hit = restore && wanted === 'ai' && cached(key);
-  if (hit) { showResults(q, hit, true); $('#search-results').hidden = false; return; }
   $('#search-results').hidden = false;
   working(MODES[wanted].working);
   $('#results-title').textContent = MODES[wanted].title;
   $('#results-count').textContent = '';
   try {
+    if (Array.isArray(hit) && hit.length) {
+      const current = (await api('/api/search/', undefined, 'GET')).items;
+      if (version !== searchVersion) return;
+      const byId = new Map(current.map(item => [item.id, item]));
+      if (hit.every(item => byId.get(item.id)?.revision === item.revision)) {
+        showResults(q, hit.map(item => ({...byId.get(item.id), explanation:item.explanation})), true);
+        return;
+      }
+    }
     let result, ai = wanted === 'ai';
     if (ai) {
       try { result = await api('/api/search/ai/', {question:q}); }
@@ -522,7 +579,17 @@ if(state.draft) {
     const source=draft.photos.length?(draft.transcript?'photos and description':'photos'):'what you said';
     editor.innerHTML=`${draft.photos.length?`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div>`:''}${draft.transcript?`<div class="transcript-note"><span class="eyebrow">What you said</span><p>${esc(draft.transcript)}</p></div>`:''}<button id="analyze" class="green wide">${rows.length?'Recognize again':`Recognize items from ${source}`}</button><p id="analyze-progress" class="analyzing" hidden aria-live="polite"></p>${filingField()}<div id="draft-rows">${rows.map((r,n)=>`<section class="draft-row" data-row="${n}"><div class="draft-row-top"><label class="check-label"><input type="checkbox" data-select="${n}" ${r.selected?'checked':''}>Select</label><button type="button" class="text-button danger" data-remove="${n}">Remove</button></div><div class="field"><label for="name-${n}">Item or assortment name</label><input id="name-${n}" data-key="name" maxlength="200" value="${esc(r.name)}" required></div><div class="field"><label for="description-${n}">Description</label><textarea id="description-${n}" data-key="description" maxlength="2000">${esc(r.description)}</textarea></div><div class="field"><label for="aliases-${n}">Other names</label><input id="aliases-${n}" data-key="aliases" maxlength="1000" value="${esc(r.aliases)}"></div>${draft.duplicates.includes(n)?'<p class="duplicate">A matching name is already in this box. Review before adding.</p>':''}</section>`).join('')}</div><div class="actions wrap"><button id="add-row">+ Add an entry</button><button id="combine">Merge selected entries</button></div><div class="save-bar"><div class="selection-bar"><label class="check-label"><input type="checkbox" id="draft-select-all">Select all</label><span id="draft-select-count" aria-live="polite"></span></div><p id="save-status" class="save-status" role="status">${dirty?'Unsaved changes':'Draft saved'}</p><div class="actions"><button id="save-draft" class="primary" ${draft.box?'':'disabled'}>${draft.box?`Save to Box ${draft.box}`:'Choose a box to save'}</button><button id="cancel-draft">Discard</button></div><p class="hint">Everything listed here is saved — use Remove to drop an entry. Selecting is only for merging.${draft.photos.length?' Uploaded photos are deleted locally.':''}</p></div>`;
     $('#analyze').onclick=analyze;$('#add-row').onclick=()=>{rows.push({name:'',description:'',aliases:'',selected:false});dirty=true;epoch++;draw();$(`#name-${rows.length-1}`).focus();};
-    $('#combine').onclick=()=>{const selected=rows.filter(r=>r.selected);if(selected.length<2){status('Select at least two entries to merge them.',true);return;}if(selected.length>2&&!confirm(`Merge ${selected.length} selected entries into a single item? This cannot be undone.`))return;const first=rows.findIndex(r=>r.selected);const combined={name:selected.map(r=>r.name).join(' + ').slice(0,200),description:selected.map(r=>r.description).filter(Boolean).join('\n').slice(0,2000),aliases:selected.map(r=>r.aliases).filter(Boolean).join(', ').slice(0,1000),selected:true};rows=rows.filter((r,n)=>!r.selected||n===first).map(r=>r.selected?combined:r);changed();draw();};
+    $('#combine').onclick=()=>{
+      const selected=rows.filter(r=>r.selected);
+      if(selected.length<2){status('Select at least two entries to merge them.',true);return;}
+      const combined={name:selected.map(r=>r.name).join(' + '),description:selected.map(r=>r.description).filter(Boolean).join('\n'),aliases:selected.map(r=>r.aliases).filter(Boolean).join(', '),selected:true};
+      if(combined.name.length>200||combined.description.length>2000||combined.aliases.length>1000){
+        status('These entries are too long to merge without losing text. Shorten them or keep them separate. Nothing was merged.',true);return;
+      }
+      if(!confirm(`Merge ${selected.length} selected entries into a single item? This cannot be undone.`))return;
+      const first=rows.findIndex(r=>r.selected);
+      rows=rows.filter((r,n)=>!r.selected||n===first).map(r=>r.selected?combined:r);changed();draw();
+    };
     $('#save-draft').onclick=saveFinal;$('#cancel-draft').onclick=cancel;
     wireFiling();
     $('#draft-select-all').onclick=e=>{const on=e.target.checked;rows.forEach(r=>r.selected=on);draw();};
@@ -552,12 +619,12 @@ if(state.draft) {
   // The model returns nothing until it has finished reading every photo, so show the wait next to
   // the button that started it. Silence for 30-60 seconds is what reads as a broken server.
   let ticker;
-  // Thresholds track the server's AI budget (settings.AI_TOTAL_TIMEOUT, 55 s); typical runs finish near 20 s.
+  // Keep slow-provider messaging honest without guessing how much time remains.
   function stage(seconds,count){
     if(seconds<10)return count?`Sending ${count} photo${count===1?'':'s'} to the AI model…`:'Sending your description to the AI model…';
     if(seconds<30)return count?'Analyzing the photos and naming what it sees…':'Working through what you said and naming the items…';
     if(seconds<50)return 'Still working. Busy models take longer — your draft is safe.';
-    return 'Almost at the time limit. If this fails, your draft is kept.';
+    return 'Still waiting for the AI service. You can return to this draft later.';
   }
   // A retry is where the owner knows what went wrong, so ask instead of a bare yes/no confirm. The
   // modal submit IS the replacement confirmation the server demands, so it still sends replace.

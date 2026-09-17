@@ -28,7 +28,7 @@ for(let n=0;n<100;n++){try{if((await fetch(baseURL+'/health/')).ok)break;}catch{
 browser=await chromium.launch({headless:true,channel:'chrome'});const page=await browser.newPage({viewport:{width:390,height:844},baseURL});const errors=[];page.on('pageerror',e=>errors.push(e.message));const dialogs=[];page.on('dialog',d=>{dialogs.push(d.message());d.accept();});
 await page.goto(baseURL);await page.waitForLoadState('networkidle');
 assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
-await page.getByRole('searchbox').fill('M3');await page.getByRole('button',{name:'Ask',exact:true}).click();await page.getByRole('heading',{name:'M3 screw, nut and washer assortment'}).waitFor();
+await page.getByRole('searchbox').fill('M3');await page.getByRole('button',{name:'Search',exact:true}).click();await page.getByRole('heading',{name:'M3 screw, nut and washer assortment'}).waitFor();
 await page.getByRole('link').filter({has:page.getByRole('heading',{name:'M3 screw, nut and washer assortment'})}).click();
 await page.getByRole('button',{name:'Flag a change',exact:true}).click();await page.getByLabel('Note (optional)').fill('UI check note');await page.getByRole('button',{name:'Send flag'}).click();await page.getByRole('status').filter({hasText:'Flag sent'}).waitFor();
 await page.goto(baseURL);
@@ -55,7 +55,7 @@ assert.equal(retrySent,'these are rivets, not screws','the correction must reach
 // this analyze call is stubbed before it ever reaches the server -- DraftContextTests covers that.
 await page.getByLabel('Item or assortment name',{exact:true}).first().fill('Reviewed connector');await page.getByRole('status').filter({hasText:'Draft saved'}).waitFor();
 await page.getByRole('button',{name:'Save to Box 12'}).click();await page.waitForURL('**/box/12');await page.getByRole('heading',{name:'Reviewed connector',exact:true}).waitFor();await page.screenshot({path:path.join(directory,'box-mobile.png'),fullPage:true});
-await page.goto(baseURL);await page.getByRole('link',{name:/Inbox/}).click();await page.locator('.flag-row').filter({hasText:'UI check note'}).getByRole('button',{name:'Resolve',exact:true}).first().click();await page.getByRole('heading',{name:'Flag inbox.'}).waitFor();
+await page.goto(baseURL);await page.getByRole('link',{name:/Inbox/}).click();await page.locator('.flag-row').filter({hasText:'UI check note'}).getByRole('button',{name:'Resolve',exact:true}).first().click();await page.getByRole('status').filter({hasText:'Flag updated.'}).waitFor();
 await page.goto(baseURL);await page.getByRole('button',{name:'+ New',exact:true}).click();assert.equal(await page.getByLabel('Box number',{exact:true}).inputValue(),'13','the new-box number is prefilled past the highest existing box');await page.getByLabel('Box number',{exact:true}).fill('21');await page.getByLabel('Category / name').fill('Reusable test');await page.getByLabel('Location (optional)').fill('Office');await page.getByRole('button',{name:'Save box',exact:true}).click();await page.waitForURL('**/box/21');
 async function archiveBox(){await page.getByLabel('Box actions').click();await page.getByRole('button',{name:'Edit box',exact:true}).click();await page.getByLabel('Archive this box').check();await page.getByRole('button',{name:'Save box',exact:true}).click();await page.getByRole('button',{name:'Restore / reuse Box 21',exact:true}).waitFor();}
 await archiveBox();await page.goto(baseURL);await page.locator('summary').filter({hasText:'Archived boxes'}).click();await page.locator('.archived-boxes a').filter({hasText:'Reusable test'}).click();await page.getByRole('button',{name:'Restore / reuse Box 21',exact:true}).click();await page.getByLabel('Category / name').fill('Restored test');assert.equal(await page.getByLabel('Location (optional)').inputValue(),'Office');await page.getByLabel('Location (optional)').fill('Garage');await page.getByRole('button',{name:'Restore box',exact:true}).click();await page.getByRole('status').filter({hasText:'Box restored'}).waitFor();assert.deepEqual(dialogs,[],'the explicit Restore button must not ask twice');
@@ -178,11 +178,115 @@ assert.equal(await page.locator('.item-row').first().locator('.item-copy p').fir
 assert.equal(await page.getByRole('button',{name:'Hide details'}).count(),1);
 await page.getByRole('button',{name:'Hide details'}).click();
 assert.equal(await page.locator('.item-row').first().locator('.item-copy p').first().isVisible(),false);
+// An oversized merge must preserve every original row and never autosave truncated text.
+const auditCsrf=(await (await page.request.get('/api/session/')).json()).csrfToken;
+const auditHeaders={'X-CSRFToken':auditCsrf};
+const createdDraft=await (await page.request.post('/api/boxes/3/drafts/',{multipart:{transcript:'two synthetic parts'},headers:auditHeaders})).json();
+const longRows=[{name:'Part A',description:'A'.repeat(1800),aliases:'first'},{name:'Part B',description:'B'.repeat(1800),aliases:'second'}];
+await page.request.post(`/api/drafts/${createdDraft.id}/`,{data:{revision:0,entries:longRows},headers:auditHeaders});
+await page.goto(baseURL+`/drafts/${createdDraft.id}`);
+await page.locator('#draft-select-all').check();
+await page.getByRole('button',{name:'Merge selected entries'}).click();
+await page.getByText('Nothing was merged.',{exact:false}).waitFor();
+assert.equal(await page.locator('.draft-row').count(),2);
+assert.equal(await page.locator('#description-1').inputValue(),'B'.repeat(1800));
+assert.deepEqual((await (await page.request.get(`/api/drafts/${createdDraft.id}/`)).json()).entries,longRows);
+
+// Cached ranking may be reused, but the box location must always be current.
+const cachedItem=(await (await page.request.get('/api/search/')).json()).items.find(i=>i.box===3);
+await page.evaluate(item=>sessionStorage.setItem('ai-search:audit cached',JSON.stringify([{...item,explanation:'Check the size'}])),cachedItem);
+const boxRevision=await page.evaluate(()=>JSON.parse(document.querySelector('#bootstrap').textContent).box.revision);
+await page.request.post('/api/boxes/3/edit/',{data:{revision:boxRevision,category:cachedItem.category,location:'Audit shelf'},headers:auditHeaders});
+let auditSearchCalls=0;
+await page.route('**/api/search/ai/',async route=>{auditSearchCalls++;await route.fulfill({json:{matches:[]}});});
+await page.goto(baseURL+'/?q=audit%20cached&mode=ai');
+await page.locator('#result-list').getByText('Audit shelf',{exact:false}).waitFor();
+assert.equal(auditSearchCalls,0,'location refresh must not need another AI call');
+await page.request.post(`/api/items/${cachedItem.id}/edit/`,{data:{...cachedItem,name:'Updated audit item'},headers:auditHeaders});
+await page.reload();
+await page.getByText('No close match.',{exact:true}).waitFor();
+assert.equal(auditSearchCalls,1,'changed item content invalidates the cached explanation');
+await page.unroute('**/api/search/ai/');
+// Camera failures: unsupported browser decoding, a lost successful upload response, and retry.
+await page.goto(baseURL);
+await page.route('**/api/drafts/*/analyze/',route=>route.fulfill({status:503,json:{error:'Synthetic AI offline',draft_preserved:true}}));
+await page.evaluate(()=>{
+  window.createImageBitmap=async()=>{throw Error('Unsupported camera format');};csrf='stale-before-camera';
+  const original=window.fetch.bind(window);let attempts=0;
+  window.fetch=async(url,options)=>{
+    const response=await original(url,options);
+    if(url==='/api/drafts/new/'&&++attempts===1){
+      window.auditUploadedId=(await response.clone().json()).id;
+      throw TypeError('Simulated connection loss after server commit');
+    }
+    return response;
+  };
+});
+let uploadedId, cameraPosts=0;
+const countCamera=request=>{if(request.url().endsWith('/api/drafts/new/'))cameraPosts++;};
+page.on('request',countCamera);
+const uploadsBefore=(await (await page.request.get('/api/drafts/')).json()).drafts.length;
+const retryChooser=page.waitForEvent('filechooser');
+await page.getByRole('button',{name:'Snap an item',exact:true}).click();
+const cameraChooser=await retryChooser;
+assert(await cameraChooser.element().evaluate(e=>e.isConnected),'camera input stays attached while the native picker is open');
+await cameraChooser.setFiles(path.join(directory,'photo.png'));
+await page.getByRole('button',{name:'Retry this photo'}).waitFor();
+assert.match(await page.locator('#snap-status').textContent(),/photo is still selected/);
+uploadedId=await page.evaluate(()=>window.auditUploadedId);assert(uploadedId,'server must have accepted the original photo');
+await page.getByRole('button',{name:'Retry this photo'}).click();
+await page.waitForURL(`**/drafts/${uploadedId}?analyze=1`);
+assert.equal(cameraPosts,2);
+assert.equal((await (await page.request.get('/api/drafts/')).json()).drafts.length,uploadsBefore+1,'lost response retry must not create another draft');
+page.off('request',countCamera);
+
+// A camera may return with files set but without change; a hanging decoder falls back after 15s.
+await page.goto(baseURL);
+await page.clock.install();
+await page.evaluate(()=>{window.createImageBitmap=()=>new Promise(()=>{});});
+const originalPhoto=fs.readFileSync(path.join(directory,'photo.png')).toString('base64');
+await page.evaluate(encoded=>{
+  const bytes=Uint8Array.from(atob(encoded),c=>c.charCodeAt(0));
+  const data=new DataTransfer();data.items.add(new File([bytes],'camera.png',{type:'image/png'}));
+  document.querySelector('#snap-photo').files=data.files;
+  window.dispatchEvent(new Event('focus'));
+},originalPhoto);
+await page.clock.fastForward(501);
+await page.locator('#snap-status').getByText('Preparing your photo…',{exact:true}).waitFor();
+await page.clock.fastForward(15001);
+await page.waitForURL('**/drafts/*analyze=1');
+
+// A stalled network request ends in a visible retry rather than leaving the button busy forever.
+await page.goto(baseURL);
+await page.evaluate(()=>{
+  const original=window.fetch.bind(window);window.auditFetch=original;
+  window.fetch=(url,options)=>url==='/api/drafts/new/'?new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')))):original(url,options);
+});
+await page.locator('#snap-photo').setInputFiles(path.join(directory,'photo.png'));
+await page.getByRole('button',{name:'Uploading photo…',exact:true}).waitFor();
+await page.clock.fastForward(60001);
+await page.getByRole('button',{name:'Retry this photo'}).waitFor();
+assert.match(await page.locator('#snap-status').textContent(),/Upload timed out/);
+assert.equal(await page.getByRole('button',{name:'Snap an item',exact:true}).isEnabled(),true);
+await page.evaluate(()=>{window.fetch=window.auditFetch;});
+await page.getByRole('button',{name:'Retry this photo'}).click();
+await page.waitForURL('**/drafts/*analyze=1');
+// Session expiry while the camera is open must allow sign-in without losing the selected photo.
+await page.goto(baseURL);
+const beforeLogout=(await (await page.request.get('/api/session/')).json()).csrfToken;
+await page.request.post('/api/logout/',{data:{},headers:{'X-CSRFToken':beforeLogout}});
+await page.locator('#snap-photo').setInputFiles(path.join(directory,'photo.png'));
+await page.getByRole('dialog').waitFor();
+assert.match(await page.locator('#snap-status').textContent(),/Sign in to finish uploading/);
+await page.getByLabel('Username',{exact:true}).fill('preview');
+await page.getByLabel('Password',{exact:true}).fill('preview-test-only');
+await page.getByRole('button',{name:'Sign in',exact:true}).click();
+await page.waitForURL('**/drafts/*analyze=1');
 // A favicon that 404s looks identical to no favicon, so check it is linked *and* served.
 const iconHref=await page.locator('link[rel="icon"]').getAttribute('href');
 assert.ok(iconHref&&iconHref.endsWith('.svg'),'the page must link an svg icon');
 const icon=await page.request.get(new URL(iconHref,baseURL).href);
 assert.equal(icon.status(),200,'the icon must actually be served');
 assert.match(icon.headers()['content-type']||'',/svg/);
-assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);console.log('UI flows passed: search, household flag, login, manual entry/move, photo review/autosave/save-what-you-see, dictation across a pause, flag resolution, archive/restore and number reuse, draft held read-only while recognizing, owner note on upload, talking and retry, snap-then-file, skimmable box contents, favicon served.');} finally {if(browser)await browser.close();server.kill();await new Promise(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',resolve);});fs.rmSync(directory,{recursive:true,force:true});}
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);console.log('UI flows passed: search, household flag, login, manual entry/move, photo review/autosave/save-what-you-see, dictation across a pause, flag resolution, archive/restore and number reuse, draft held read-only while recognizing, owner note on upload, talking and retry, snap-then-file, merge limits, cache refresh, camera decode/event/network failure recovery, upload idempotency, session-expiry recovery, favicon served.');} finally {if(browser)await browser.close();server.kill();await new Promise(resolve=>{if(server.exitCode!==null)resolve();else server.once('exit',resolve);});fs.rmSync(directory,{recursive:true,force:true});}
 })();
