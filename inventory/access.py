@@ -3,6 +3,7 @@ import time
 from collections import OrderedDict
 from functools import wraps
 from threading import Lock
+from django.conf import settings
 from django.http import JsonResponse
 from django.core.exceptions import RequestDataTooBig
 from .validation import Invalid
@@ -13,7 +14,12 @@ buckets = OrderedDict()
 
 def limited(request, action, limit):
     # ponytail: bounded single-process throttle; shared storage if adding workers.
-    key = (action, request.META.get('REMOTE_ADDR', 'unknown'))
+    # Behind a proxy REMOTE_ADDR is the proxy, so every visitor would share one bucket. The last
+    # X-Forwarded-For hop is the one the trusted proxy appended; earlier hops are client-supplied.
+    address = request.META.get('REMOTE_ADDR', 'unknown')
+    if settings.TRUST_PROXY and request.META.get('HTTP_X_FORWARDED_FOR'):
+        address = request.META['HTTP_X_FORWARDED_FOR'].rsplit(',', 1)[-1].strip() or address
+    key = (action, address)
     now = time.monotonic()
     with lock:
         start, count = buckets.pop(key, (now, 0))

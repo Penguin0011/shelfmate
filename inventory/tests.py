@@ -893,3 +893,27 @@ class RewriteDescriptionTests(TestCase):
         self.assertEqual((tape.description, tape.revision), ('Matte tape 3/4 inch by 300 inches.', 1))
         self.assertEqual((glue.description, glue.revision), ('Cyanoacrylate glue.', 0), 'a longer rewrite is padding and is skipped')
         typed.refresh_from_db(); self.assertEqual(typed.description, 'In the grey bin. Made in China.', 'hand-typed descriptions are never rewritten')
+
+
+@override_settings(SECURE_SSL_REDIRECT=False, SESSION_COOKIE_SECURE=False)
+class ProxyTests(TestCase):
+    def setUp(self):
+        buckets.clear()
+    def attempt(self, **meta):
+        return self.client.post('/api/login/', data=json.dumps({'username': 'x', 'password': 'y'}), content_type='application/json', **meta)
+    def test_throttle_keys_on_forwarded_client_only_when_proxy_is_trusted(self):
+        # Untrusted: the header is ignored, so two "clients" behind one address share a bucket.
+        for _ in range(10):
+            self.attempt(HTTP_X_FORWARDED_FOR='198.51.100.1')
+        self.assertEqual(self.attempt(HTTP_X_FORWARDED_FOR='198.51.100.2').status_code, 429)
+        buckets.clear()
+        with self.settings(TRUST_PROXY=True):
+            for _ in range(10):
+                self.attempt(HTTP_X_FORWARDED_FOR='198.51.100.1')
+            self.assertEqual(self.attempt(HTTP_X_FORWARDED_FOR='198.51.100.1').status_code, 429)
+            self.assertEqual(self.attempt(HTTP_X_FORWARDED_FOR='198.51.100.2').status_code, 403)
+            # Only the hop the proxy appended counts; a client cannot pick its own bucket by prepending.
+            self.assertEqual(self.attempt(HTTP_X_FORWARDED_FOR='203.0.113.9, 198.51.100.1').status_code, 429)
+    def test_page_shows_request_host_not_a_fixed_name(self):
+        Box.objects.create(number=1, category='Test')
+        self.assertContains(self.client.get('/box/1', HTTP_HOST='localhost'), '<span class="site-address">localhost</span>')

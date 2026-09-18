@@ -6,9 +6,10 @@ After=network.target
 User=inventory
 Group=inventory
 WorkingDirectory=/opt/inventory
+# /etc/inventory.env must set FORWARDED_ALLOW_IPS=<proxy ip>,127.0.0.1 (read by gunicorn) and TRUST_PROXY=1.
 EnvironmentFile=/etc/inventory.env
 ExecStartPre=/opt/inventory/.venv/bin/python manage.py cleanup_drafts
-ExecStart=/opt/inventory/.venv/bin/gunicorn config.wsgi:application --workers 1 --threads 4 --bind 0.0.0.0:80 --forwarded-allow-ips=10.0.0.6,127.0.0.1 --timeout 200 --access-logfile -
+ExecStart=/opt/inventory/.venv/bin/gunicorn config.wsgi:application --workers 1 --threads 4 --bind 0.0.0.0:80 --timeout 200 --access-logfile -
 Restart=on-failure
 UMask=0077
 AmbientCapabilities=CAP_NET_BIND_SERVICE

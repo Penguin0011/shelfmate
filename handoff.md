@@ -1,8 +1,7 @@
 # Handoff — Household Index
 
 Django/SQLite home inventory. Household members browse and flag items; the owner signs in to
-manage boxes, add items from photos via AI recognition, and search. Live at
-<https://box.clouddev.dad/>; the deployed revision is recorded in `/opt/inventory/REVISION`.
+manage boxes, add items from photos via AI recognition, and search. The deployed revision is recorded in `/opt/inventory/REVISION` on the VM.
 
 `README.md` is the reference for architecture and the API contract. This file covers the things
 that are not obvious from reading the code, and that cost real time to discover.
@@ -13,12 +12,12 @@ that are not obvious from reading the code, and that cost real time to discover.
 
 | | |
 |---|---|
-| VM | `box@10.0.0.21`, Ubuntu 22.04 |
+| VM | `<vm-host>` (Ubuntu 22.04); the address and SSH user are not recorded here |
 | App | `/opt/inventory` (root-owned, **not a git checkout**) |
 | Runtime data | `/var/lib/inventory` (db, draft photos), owned by `inventory` |
-| Secrets | `/etc/inventory.env`, mode 0600, root-only |
+| Secrets | `/etc/inventory.env`, mode 0600, root-only. Sets `ALLOWED_HOSTS`, `CSRF_TRUSTED_ORIGINS`, `TRUST_PROXY=1`, `FORWARDED_ALLOW_IPS` and the AI keys |
 | Service | `inventory.service` — gunicorn, 1 worker / 4 threads, binds :80 |
-| Proxy | NGINX Proxy Manager at `10.0.0.6`, terminates TLS, forwards to `10.0.0.21:80` |
+| Proxy | NGINX Proxy Manager on a separate host, terminates TLS, forwards to the VM on :80. Its address is `FORWARDED_ALLOW_IPS` in `/etc/inventory.env` |
 | Backups | `/var/backups/inventory/` |
 
 Everything on the VM needs `sudo`. Inspect with `systemctl status inventory` and
@@ -36,7 +35,7 @@ intend to ship. It once read four commits behind, so a deploy meant as a one-lin
 carried an undeployed feature and its schema migration. Know your real scope first.
 
 ```sh
-git log --oneline $(ssh box@10.0.0.21 cat /opt/inventory/REVISION)..HEAD
+git log --oneline $(ssh <vm-host> cat /opt/inventory/REVISION)..HEAD
 ```
 
 Then, as root on the VM:
@@ -64,7 +63,7 @@ cp /opt/inventory/deploy/inventory.service /etc/systemd/system/ && systemctl dae
 systemctl restart inventory
 # systemd Type=simple may report started before Gunicorn opens its listener.
 curl --retry 8 --retry-connrefused --retry-delay 1 -fsS \
-  -H 'Host: box.clouddev.dad' -H 'X-Forwarded-Proto: https' http://127.0.0.1/health/
+  -H 'Host: <public-hostname>' -H 'X-Forwarded-Proto: https' http://127.0.0.1/health/
 ```
 
 The backup destination must not exist. The command uses SQLite's backup API, removes temporary
@@ -84,7 +83,7 @@ assets straight from the app directory. Verify afterwards by fetching the real U
 for something new:
 
 ```sh
-curl -s https://box.clouddev.dad/static/inventory/app.js | grep -c <new-symbol>
+curl -s https://<public-hostname>/static/inventory/app.js | grep -c <new-symbol>
 ```
 
 **The venv has no pip.** `/opt/inventory/.venv` was built by `uv` (see `pyvenv.cfg`), and `uv`

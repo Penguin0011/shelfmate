@@ -1,0 +1,7 @@
+# Optional local safeguard: `pip install pre-commit && pre-commit install`.
+# Blocks commits that contain credentials. GitHub secret scanning + push protection is the server-side backstop.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks

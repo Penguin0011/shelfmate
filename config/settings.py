@@ -6,15 +6,17 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Local-only KEY=value file; process environment takes precedence. No shell evaluation.
 if (BASE_DIR / '.env').exists():
     for line in (BASE_DIR / '.env').read_text().splitlines():
-        if line.strip() and not line.lstrip().startswith('#'):
+        if '=' in line and not line.lstrip().startswith('#'):
             key, value = line.split('=', 1)
             os.environ.setdefault(key.strip(), value.strip())
 DEBUG = os.getenv('DEBUG', '0') == '1'
 SECRET_KEY = os.getenv('SECRET_KEY', '')
 if not SECRET_KEY:
     raise ImproperlyConfigured('Set SECRET_KEY in environment or local .env')
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,box.clouddev.dad').split(',')
-CSRF_TRUSTED_ORIGINS = ['https://box.clouddev.dad']
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+# The public origin(s) the site is served from, e.g. https://inventory.example.com; needed for POSTs
+# through a TLS-terminating proxy.
+CSRF_TRUSTED_ORIGINS = [o for o in os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if o]
 INSTALLED_APPS = ['django.contrib.auth', 'django.contrib.contenttypes', 'django.contrib.sessions', 'django.contrib.staticfiles', 'inventory']
 MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'django.middleware.clickjacking.XFrameOptionsMiddleware', 'whitenoise.middleware.WhiteNoiseMiddleware', 'django.contrib.sessions.middleware.SessionMiddleware', 'django.middleware.common.CommonMiddleware', 'django.middleware.csrf.CsrfViewMiddleware', 'django.contrib.auth.middleware.AuthenticationMiddleware']
 ROOT_URLCONF = 'config.urls'
@@ -35,8 +37,10 @@ CSRF_COOKIE_SECURE = not DEBUG
 SECURE_SSL_REDIRECT = not DEBUG
 SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
 SECURE_CONTENT_TYPE_NOSNIFF = True
-# Enable only when ingress is restricted to a proxy that replaces this header.
-if os.getenv('TRUST_PROXY', '0') == '1':
+# Enable only when ingress is restricted to a proxy that replaces these headers. Also makes the
+# per-client throttle read the client address from X-Forwarded-For instead of the proxy's own.
+TRUST_PROXY = os.getenv('TRUST_PROXY', '0') == '1'
+if TRUST_PROXY:
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'

@@ -9,3 +9,8 @@ data/
 staticfiles/
 node_modules/
 .DS_Store
+*.tar
+*.bak
+*.log
+.claude/
+Home Inventory mockup.html
