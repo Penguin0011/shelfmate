@@ -170,6 +170,8 @@ def candidates(question, inventory):
 
 @endpoint(['POST'])
 def search(request):
+    if settings.AI_SEARCH_OWNER_ONLY and not (request.user.is_authenticated and request.user.is_active and request.user.is_staff):
+        return JsonResponse({'error':'Smart search is for the owner on this site'}, status=403)
     if limited(request, 'ai-search', 10):
         return JsonResponse({'error':'Try again later'}, status=429)
     question = string(body(request), 'question', 500, True)

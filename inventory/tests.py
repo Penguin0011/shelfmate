@@ -917,3 +917,20 @@ class ProxyTests(TestCase):
     def test_page_shows_request_host_not_a_fixed_name(self):
         Box.objects.create(number=1, category='Test')
         self.assertContains(self.client.get('/box/1', HTTP_HOST='localhost'), '<span class="site-address">localhost</span>')
+
+
+@override_settings(SECURE_SSL_REDIRECT=False, SESSION_COOKIE_SECURE=False, AI_SEARCH_OWNER_ONLY=True)
+class SmartSearchToggleTests(TestCase):
+    def test_owner_only_gate(self):
+        buckets.clear()
+        Box.objects.create(number=1, category='Test')
+        ask = lambda: self.client.post('/api/search/ai/', json.dumps({'question': 'screws'}), content_type='application/json')
+        self.assertEqual(ask().status_code, 403)
+        page = self.client.get('/').content.decode()
+        self.assertNotIn('mode-switch', page)
+        self.assertNotIn('search-mic', page)
+        self.assertIn('"smart_search": false', page)
+        self.client.force_login(get_user_model().objects.create_user('owner', password='test-password', is_staff=True))
+        with override_settings(FIREWORKS_API_KEY='', GEMINI_API_KEY='', OPENROUTER_API_KEY=''):
+            self.assertEqual(ask().status_code, 200)  # empty inventory answers before any provider is needed
+        self.assertIn('mode-switch', self.client.get('/').content.decode())

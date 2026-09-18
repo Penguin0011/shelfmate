@@ -35,6 +35,7 @@ environment wins). `.env.example` documents them all. The ones that matter:
 | `TRUST_PROXY` | `1` only when a reverse proxy in front of the app rewrites `X-Forwarded-Proto` and `X-Forwarded-For`. Enables the proxy SSL header and per-client throttling by forwarded address. |
 | `DATA_DIR` | Where the SQLite database and temporary draft photos live (default `./data`, mode 0700). |
 | `FIREWORKS_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY` | AI providers, tried in that order. Empty keys are skipped. |
+| `AI_SEARCH_OWNER_ONLY` | `1` restricts smart search to the signed-in owner, so visitors cannot spend provider credit. Default `0`: anyone browsing can use it, throttled per address. |
 | `*_MODEL`, `AI_*` | Model names, token cap, timeouts and search budget; see `config/settings.py`. |
 
 ## Deploying
@@ -123,5 +124,5 @@ Owner-only `POST /api/items/bulk/` accepts `{"action":"delete"|"move", "items":[
 ## Operations and licensing
 
 `handoff.md` covers backup and restore, the AI timeout stack, and the invariants that are easy to
-break. Third-party assets are listed in `THIRD_PARTY_NOTICES.md`. A local `pre-commit` hook that
+break. Licensed under the MIT License (`LICENSE`); third-party assets are listed in `THIRD_PARTY_NOTICES.md`. A local `pre-commit` hook that
 blocks committed credentials is configured in `.pre-commit-config.yaml`.

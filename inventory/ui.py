@@ -1,5 +1,6 @@
 from itertools import groupby
 
+from django.conf import settings
 from django.shortcuts import render, get_object_or_404, redirect
 from django.db.models import Count, Max, Prefetch
 from django.views.decorators.cache import never_cache
@@ -13,6 +14,7 @@ def page(request, number=None, draft_id=None, screen='home'):
     owner = request.user.is_authenticated and request.user.is_active and request.user.is_staff
     if (screen in ('inbox', 'draft') or draft_id) and not owner:
         return redirect('/?login=1')
+    smart_search = bool(owner) or not settings.AI_SEARCH_OWNER_ONLY
     index = screen == 'home' and number is None and draft_id is None
     listing = Box.objects.filter(retired=False).annotate(count=Count('items')).order_by('number')
     if index:
@@ -38,13 +40,13 @@ def page(request, number=None, draft_id=None, screen='home'):
     # box_create treats an existing retired number as a restore, so suggesting a reused number
     # would silently revive an archived box -- and hand out an NFC tag already stuck to a real one.
     next_number = (Box.objects.aggregate(highest=Max('number'))['highest'] or 0) + 1 if owner else None
-    bootstrap = {'owner': bool(owner), 'next_number': next_number,
+    bootstrap = {'owner': bool(owner), 'smart_search': smart_search, 'next_number': next_number,
                  'locations': sorted({b.location for b in boxes if b.location}, key=str.casefold) if owner else [],
                  'boxes': [{'number': b.number, 'category': b.category, 'location': b.location} for b in boxes],
                  'box': {'number': box.number, 'category': box.category, 'location': box.location, 'revision': box.revision, 'retired': box.retired} if box else None,
                  'items': [item_data(i) for i in items], 'draft': draft_data(draft) if draft else None}
     return render(request, 'inventory/page.html', {
-        'screen': screen, 'owner': owner, 'host': request.get_host(), 'boxes': boxes, 'groups': groups, 'box': box, 'items': items,
+        'screen': screen, 'owner': owner, 'host': request.get_host(), 'smart_search': smart_search, 'boxes': boxes, 'groups': groups, 'box': box, 'items': items,
         'archived_boxes': Box.objects.filter(retired=True) if owner else [],
         'total': sum(b.count for b in boxes), 'last_change': last_change,
         'open_count': flags.filter(status='open').count(),

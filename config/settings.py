@@ -65,5 +65,7 @@ AI_MAX_TOKENS = int(os.getenv('AI_MAX_TOKENS', '32000'))
 # cut to AI_SEARCH_CANDIDATES items by local term matching first, so the rerank payload stays flat.
 AI_SEARCH_BUDGET = int(os.getenv('AI_SEARCH_BUDGET', '120000'))
 AI_SEARCH_CANDIDATES = int(os.getenv('AI_SEARCH_CANDIDATES', '80'))
+# Smart search costs provider credit per call. Set to 1 to restrict it to the signed-in owner.
+AI_SEARCH_OWNER_ONLY = os.getenv('AI_SEARCH_OWNER_ONLY', '0') == '1'
 AI_PROVIDER_TIMEOUT = int(os.getenv('AI_PROVIDER_TIMEOUT', '120'))
 AI_TOTAL_TIMEOUT = int(os.getenv('AI_TOTAL_TIMEOUT', '150'))

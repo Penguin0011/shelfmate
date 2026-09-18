@@ -438,7 +438,7 @@ const MODES = {
   name: {title:'Keyword matches', placeholder:'Search by keyword', working:'Searching your boxes…'},
   ai:   {title:'Smart matches', placeholder:'Describe what you need', working:'Analyzing your inventory…'},
 };
-const mode = () => ($('#search-form') ? $('#search-form').mode.value : 'name');
+const mode = () => $('#search-form')?.mode?.value || 'name';
 const setMode = value => { const r = $(`.mode-switch input[value="${value}"]`); if (r) { r.checked = true; modeChanged(); } };
 // Back from a box lands on the results that sent you there, so the query travels with the link.
 const searchQuery = (q, m) => `q=${encodeURIComponent(q)}${m === 'ai' ? '&mode=ai' : ''}`;
@@ -465,8 +465,8 @@ function showResults(q, matches, ai) {
     ? matches.map(i => resultRow(i, ai, q)).join('')
     : `<div class="empty result-empty"><h3>${ai ? 'No close match.' : 'Nothing named that.'}</h3><p>No entry matches “${esc(q)}”.</p>`
       + (ai ? '<p class="hint">Smart search found no close match in the inventory details it received. Try different words, or ask the owner to check.</p>'
-            : '<div class="actions"><button type="button" id="escalate">Try smart search instead</button></div>'
-              + '<p class="hint">A keyword search only matches the words written down. Smart search reads the full descriptions and can work from a rough description.</p>')
+            : state.smart_search ? '<div class="actions"><button type="button" id="escalate">Try smart search instead</button></div>'
+              + '<p class="hint">A keyword search only matches the words written down. Smart search reads the full descriptions and can work from a rough description.</p>' : '')
       + '</div>';
   if ($('#escalate')) $('#escalate').onclick = () => { setMode('ai'); runSearch(); };
 }
@@ -512,11 +512,11 @@ async function runSearch({restore = false} = {}) {
 if ($('#search-form')) {
   $('#search-form').addEventListener('submit', e => { e.preventDefault(); runSearch(); });
   // Switching mode with a query already typed re-runs it: the point of the switch is comparing.
-  $('.mode-switch').addEventListener('change', () => { modeChanged(); if ($('#query').value.trim()) runSearch(); });
+  $('.mode-switch')?.addEventListener('change', () => { modeChanged(); if ($('#query').value.trim()) runSearch(); });
   $('#clear-search').onclick = () => { searchVersion++; document.body.classList.remove('searching'); $('#search-results').hidden = true; $('#query').value = ''; history.replaceState(null, '', '/'); $('#query').focus(); };
   // maxlength only constrains typing, so a long dictation must be clipped to the server's 500 limit.
   // Dictation is sentence-shaped, so it always asks the model -- and flips the switch to show why.
-  micToggle($('#search-mic'), {
+  if ($('#search-mic')) micToggle($('#search-mic'), {
     onStart:() => { setMode('ai'); notice('Listening… ask your question, then press the microphone again.'); },
     onText:text => { $('#query').value = text.trim().slice(0, 500); },
     onDone:failure => { if (failure) notice(failure, true); else { $('#notice').hidden = true; if ($('#query').value.trim()) runSearch(); } },
