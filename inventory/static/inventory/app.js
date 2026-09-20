@@ -24,7 +24,7 @@ function sketch(root=document){
   root.querySelectorAll(SKETCH_FIELDS).forEach(f=>{ if(f.closest('.drawably-host')) return;
     (f.tagName==='TEXTAREA'?d.drawablyTextarea:f.tagName==='SELECT'?d.drawablySelect:d.drawablyInput)(wrap(f)); });
   root.querySelectorAll('.draft-row:not(.drawably-host),.transcript-note:not(.drawably-host)').forEach(c=>d.drawablyCard(c));
-  root.querySelectorAll('.match-label:not(.drawably-host)').forEach(b=>d.drawablyBadge(b,{variant:'scribble'}));
+  root.querySelectorAll('.match-label:not(.drawably-host)').forEach(b=>d.drawablyBadge(b));
 }
 sketch();
 new MutationObserver(records=>{ if(records.some(r=>!r.target.closest('.drawably-svg'))) sketch(); })
