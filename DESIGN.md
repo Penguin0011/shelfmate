@@ -79,3 +79,12 @@ Verified correction: full browser suite passes, including owner count/search →
 Warm the existing palette to amber #f7b267, peach #f08a5d, pale gold #f7c99a, and soft rose #e8a3c4 on a brown-black ground. Remove lavender/blue background fields; warm the desktop lens texture and primary actions to match. Keep the established owner hierarchy and Archivo. Mobile retains a static CSS glass surface, no WebGL or backdrop blur, 16px search text to avoid input zoom, and 44px+ primary actions. Add a narrow-phone rule below 380px for the header and count/search-mode row. Validate signed-in 320, 360, 390 and 430px layouts, photo-action visibility, contrast, reduced motion and desktop rendering.
 
 Golden-hour checks passed at 320, 360, 390, 430 and 1440px: zero axe violations, zero horizontal overflow, no page errors. Both photo actions fit within a 320×568 viewport. Full workflow suite passes with the added narrow-phone regression checks. Shortened the keyword placeholder to "Search items" to fit beside the voice control on narrow phones.
+
+## Mockup reskin (2026-10-26)
+
+Follows the approved canvas (Main, Search, Box, Draft, Inbox, Phone). Dark, hairline-ruled, one typeface (self-hosted Archivo,
+weight 300 for the huge numerals), square buttons, no cards. The background is the same Grainient shader and settings as
+dash.clouddev.dad (vendored React Bits port, `atmosphere.js`), animated here through its own drift and animated grain, with a
+deeper scrim than the dashboard's so grey text holds 4.5:1 over its brightest band. Palette lives in the `--band-*` tokens;
+`data-palette="night"` on `<html>` switches to the night set. Thinking Orbs use the vendored upstream engine on one
+requestAnimationFrame loop. GSAP, liquid-glass, Drawably, `night.css` and the raster grain are removed.

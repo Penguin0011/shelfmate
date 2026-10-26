@@ -17,7 +17,7 @@ function mountOrbs() {
     document.querySelectorAll('.analyzing').forEach(status => {
       if (status.querySelector('[data-orb]')) return;
       const canvas = document.createElement('canvas');
-      canvas.dataset.orb = '20';
+      canvas.dataset.orb = '240';
       canvas.setAttribute('aria-hidden', 'true');
       status.prepend(canvas);
     });
@@ -36,11 +36,12 @@ function mountOrbs() {
   function draw(time) {
     for (const [canvas, orb] of orbs) {
       if (!orb.visible || document.hidden) continue;
-      const state = canvas.closest('.analyzing') || document.querySelector('#search-form[aria-busy=true]')
+      const state = canvas.closest('.analyzing:not(.error)') || canvas.dataset.busy === '1' || document.querySelector('#search-form[aria-busy=true]')
         ? 'searching' : canvas.closest('.listening') ? 'listening' : 'breathing';
       const changed = orb.previous !== state;
       if (!changed && (state === 'breathing' || reduced.matches || time - orb.painted < 1 / 30)) continue;
-      if (changed) { orb.preset = resolvePreset(state, orb.size); canvas.dataset.orbState = state; }
+      // The engine ships tuned presets for 20, 32 and 64px only.
+      if (changed) { orb.preset = resolvePreset(state, orb.size >= 48 ? 64 : orb.size >= 26 ? 32 : 20); canvas.dataset.orbState = state; }
       orb.previous = state; orb.painted = time;
       const {mode, speed, opts} = orb.preset;
       orb.ctx.setTransform(orb.dpr, 0, 0, orb.dpr, 0, 0);
@@ -53,8 +54,9 @@ function mountOrbs() {
   const redraw = () => { for (const orb of orbs.values()) orb.previous = ''; draw(0); };
   reduced.addEventListener('change', redraw);
   scan();
-  window.gsap?.ticker.add(draw);
-  return () => { window.gsap?.ticker.remove(draw); observer.disconnect(); visibility.disconnect(); reduced.removeEventListener('change', redraw); };
+  // One requestAnimationFrame loop drives every orb; the engine takes seconds.
+  let raf = requestAnimationFrame(function tick(ms) { draw(ms / 1000); raf = requestAnimationFrame(tick); });
+  return () => { cancelAnimationFrame(raf); observer.disconnect(); visibility.disconnect(); reduced.removeEventListener('change', redraw); };
 }
 let unmount = mountOrbs();
 addEventListener('pagehide', () => unmount());

@@ -212,8 +212,8 @@ function snapItem(){
 async function uploadSnap(){
   if(snapBusy||!pendingSnap)return;
   snapBusy=true;
-  const button=$('[data-action="snap"]'), retry=$('#snap-retry'), choose=$('#snap-choose');
-  button.disabled=retry.disabled=choose.disabled=true;retry.hidden=true;
+  const button=$('[data-action="snap"] span'), retry=$('#snap-retry'), choose=$('#snap-choose');
+  button.parentElement.disabled=retry.disabled=choose.disabled=true;retry.hidden=true;
   const controller=new AbortController();
   let timer;
   try{
@@ -237,7 +237,7 @@ async function uploadSnap(){
     retry.hidden=false;
   }finally{
     clearTimeout(timer);snapBusy=false;
-    button.disabled=retry.disabled=choose.disabled=false;button.textContent='Snap an item';
+    button.parentElement.disabled=retry.disabled=choose.disabled=false;button.textContent='Snap an item';
   }
 }
 function captureSnap(input){
@@ -317,8 +317,9 @@ const picked = () => [...document.querySelectorAll('.pick-item:checked')].map(c 
 function selectionChanged() {
   const count = picked().length, all = document.querySelectorAll('.pick-item').length;
   const label = $('#select-count');
-  if (label) label.textContent = count ? `${count} of ${all} selected` : 'Select items to move or delete them together.';
-  document.querySelectorAll('[data-action="bulk-move"],[data-action="bulk-delete"]').forEach(b => b.disabled = !count);
+  if (label) { label.textContent = `${count} selected`; label.hidden = !count; }
+  // Until something is ticked the bar offers only Select all.
+  if ($('.select-actions')) $('.select-actions').hidden = !count;
   document.querySelectorAll('.pick-item').forEach(c => c.closest('.item-row').classList.toggle('picked', c.checked));
   const toggle = $('#select-all');
   if (toggle) { toggle.checked = count > 0 && count === all; toggle.indeterminate = count > 0 && count < all; }
@@ -501,7 +502,7 @@ if ($('#search-form')) {
   const params = new URLSearchParams(location.search), q = params.get('q');
   if (params.get('mode') === 'ai') setMode('ai'); else modeChanged();
   if (q) { $('#query').value = q.slice(0, 500); runSearch({restore: true}); }
-  if (state.owner) api('/api/drafts/', undefined, 'GET').then(r => { if (r.drafts.length) { $('#draft-list').hidden = false; $('#draft-links').innerHTML = r.drafts.map(d => `<a class="box-row" href="/drafts/${d.id}"><span class="row-number" aria-hidden="true">${String(d.box).padStart(2, '0')}</span><span class="box-copy"><span class="box-category">${d.analyzing ? 'Recognizing…' : 'Continue adding'}</span><span class="box-sub">Box ${d.box} · ${d.analyzing ? 'AI is still working' : 'unfinished draft'}</span></span></a>`).join(''); } }).catch(e => notice(e.message, true));
+  if (state.owner) api('/api/drafts/', undefined, 'GET').then(r => { if (r.drafts.length) { $('#draft-list').hidden = false; $('#draft-count').textContent = `${r.drafts.length} not filed yet`; $('#draft-links').innerHTML = r.drafts.map(d => `<a class="draft-pill" href="/drafts/${d.id}">${d.analyzing ? '<canvas data-orb="48" data-busy="1" aria-hidden="true"></canvas><span class="shim">Recognizing…</span>' : '<span>Continue adding</span>'}<span class="box-sub">${d.box ? `Box ${d.box}` : 'Not filed'}</span></a>`).join(''); } }).catch(e => notice(e.message, true));
 }
 
 // Every other screen's back arrow goes to the bare index, which threw the results away. When a
@@ -563,7 +564,7 @@ if(state.draft) {
   }
   function drawAnalyzing(){
     const source=draft.photos.length?(draft.transcript?'your photos and description':'your photos'):'what you said';
-    editor.innerHTML=`${draft.photos.length?`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div>`:''}<p class="analyzing" aria-live="polite">Recognizing items from ${source}…</p><p class="hint">This keeps running if you close the page — the result is saved to this draft. Entry editing is paused until it lands, but you can still file it and leave a note.</p>${filingField()}<div class="actions">${draft.box?`<a class="button" href="/box/${draft.box}">Open Box ${draft.box}</a>`:''}</div>`;
+    editor.innerHTML=`${draft.photos.length?`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div>`:''}<p class="analyzing" aria-live="polite">Recognizing items from ${source}…</p>${filingField()}<div class="actions">${draft.box?`<a class="button" href="/box/${draft.box}">Open Box ${draft.box}</a>`:''}</div>`;
     wireFiling();
     clearTimeout(poll);
     poll=setTimeout(async()=>{
