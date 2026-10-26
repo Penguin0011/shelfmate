@@ -4,31 +4,6 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let csrf, dialogHandler, dialogBusy = false;
 
-// Drawably (vendored under static/inventory/drawably, exposed as window.drawably by the module script
-// in page.html) sketches SVG chrome onto real controls. Every render path writes innerHTML, so rather
-// than calling this after each one a body observer re-runs it; the :not(.drawably-host) guards make a
-// pass idempotent and a no-op pass costs a few querySelectorAll.
-const SKETCH_BUTTONS='button:not(.text-button,.ask-go,.ask-mic,.remove-photo,.dialog-top .close,.overflow button,.drawably-host),.button:not(.drawably-host),.small-button:not(.drawably-host)';
-const SKETCH_FIELDS='input:is(:not([type]),[type=text],[type=search],[type=number],[type=password]),textarea,select';
-const sketches=new WeakMap();
-function sketch(root=document){
-  const d=window.drawably; if(!d) return;
-  const wrap=el=>{ const w=document.createElement('span'); el.replaceWith(w); w.append(el); return w; };
-  // Relabelling a button with textContent= discards the SVG along with the old label (dialog submit,
-  // snap and analyze buttons all do this), so a sketch left with no drawing is torn down and redrawn.
-  root.querySelectorAll('.drawably-button:not(:has(.drawably-svg))').forEach(b=>sketches.get(b)?.destroy());
-  root.querySelectorAll(SKETCH_BUTTONS).forEach(b=>sketches.set(b,d.drawablyButton(b,{
-    variant:b.matches('.primary,.green,.rust')?'solid':'outline', tone:b.matches('.danger')?'danger':undefined,
-  })));
-  root.querySelectorAll('input[type=checkbox]:not(.mode-option input,.drawably-host input)').forEach(c=>d.drawablyCheckbox(wrap(c)));
-  root.querySelectorAll(SKETCH_FIELDS).forEach(f=>{ if(f.closest('.drawably-host')) return;
-    (f.tagName==='TEXTAREA'?d.drawablyTextarea:f.tagName==='SELECT'?d.drawablySelect:d.drawablyInput)(wrap(f)); });
-  root.querySelectorAll('.draft-row:not(.drawably-host),.transcript-note:not(.drawably-host)').forEach(c=>d.drawablyCard(c));
-  root.querySelectorAll('.match-label:not(.drawably-host)').forEach(b=>d.drawablyBadge(b));
-}
-sketch();
-new MutationObserver(records=>{ if(records.some(r=>!r.target.closest('.drawably-svg'))) sketch(); })
-  .observe(document.body,{childList:true,subtree:true});
 async function refreshSession(signal) {
   const response = await fetch('/api/session/', {credentials:'same-origin', cache:'no-store', signal});
   if (!response.ok) throw Error('Unable to start a session. Try again.');
@@ -237,8 +212,8 @@ function snapItem(){
 async function uploadSnap(){
   if(snapBusy||!pendingSnap)return;
   snapBusy=true;
-  const button=$('[data-action="snap"]'), retry=$('#snap-retry'), choose=$('#snap-choose');
-  button.disabled=retry.disabled=choose.disabled=true;retry.hidden=true;
+  const button=$('[data-action="snap"] span'), retry=$('#snap-retry'), choose=$('#snap-choose');
+  button.parentElement.disabled=retry.disabled=choose.disabled=true;retry.hidden=true;
   const controller=new AbortController();
   let timer;
   try{
@@ -262,7 +237,7 @@ async function uploadSnap(){
     retry.hidden=false;
   }finally{
     clearTimeout(timer);snapBusy=false;
-    button.disabled=retry.disabled=choose.disabled=false;button.textContent='Snap an item';
+    button.parentElement.disabled=retry.disabled=choose.disabled=false;button.textContent='Snap an item';
   }
 }
 function captureSnap(input){
@@ -342,8 +317,9 @@ const picked = () => [...document.querySelectorAll('.pick-item:checked')].map(c 
 function selectionChanged() {
   const count = picked().length, all = document.querySelectorAll('.pick-item').length;
   const label = $('#select-count');
-  if (label) label.textContent = count ? `${count} of ${all} selected` : 'Select items to move or delete them together.';
-  document.querySelectorAll('[data-action="bulk-move"],[data-action="bulk-delete"]').forEach(b => b.disabled = !count);
+  if (label) { label.textContent = `${count} selected`; label.hidden = !count; }
+  // Until something is ticked the bar offers only Select all.
+  if ($('.select-actions')) $('.select-actions').hidden = !count;
   document.querySelectorAll('.pick-item').forEach(c => c.closest('.item-row').classList.toggle('picked', c.checked));
   const toggle = $('#select-all');
   if (toggle) { toggle.checked = count > 0 && count === all; toggle.indeterminate = count > 0 && count < all; }
@@ -435,7 +411,7 @@ if(new URLSearchParams(location.search).has('login'))loginForm();
 // instant; smart search reads the saved descriptions and takes seconds, so it is asked for explicitly.
 // The old always-AI-first fallback stays for the case where the owner did ask and it is unavailable.
 const MODES = {
-  name: {title:'Keyword matches', placeholder:'Search by keyword', working:'Searching your boxes…'},
+  name: {title:'Keyword matches', placeholder:'Search items', working:'Searching your boxes…'},
   ai:   {title:'Smart matches', placeholder:'Describe what you need', working:'Analyzing your inventory…'},
 };
 const mode = () => $('#search-form')?.mode?.value || 'name';
@@ -476,6 +452,7 @@ async function runSearch({restore = false} = {}) {
   const q = $('#query').value.trim(); if (!q) { $('#query').focus(); return; }
   const wanted = mode(), version = ++searchVersion;
   document.body.classList.add('searching');
+  $('#search-form').setAttribute('aria-busy','true');
   history.replaceState(null, '', `/?${searchQuery(q, wanted)}`);
   const key = `ai-search:${q}`;
   const hit = restore && wanted === 'ai' && cached(key);
@@ -508,23 +485,24 @@ async function runSearch({restore = false} = {}) {
     if (ai) cached(key, matches);
     showResults(q, matches, ai);
   } catch (error) { if (version === searchVersion) { $('#result-list').innerHTML = ''; const p = document.createElement('p'); p.className = 'pad'; p.textContent = error.message; $('#result-list').append(p); } }
+  finally { if (version === searchVersion) $('#search-form').setAttribute('aria-busy','false'); }
 }
 if ($('#search-form')) {
   $('#search-form').addEventListener('submit', e => { e.preventDefault(); runSearch(); });
   // Switching mode with a query already typed re-runs it: the point of the switch is comparing.
   $('.mode-switch')?.addEventListener('change', () => { modeChanged(); if ($('#query').value.trim()) runSearch(); });
-  $('#clear-search').onclick = () => { searchVersion++; document.body.classList.remove('searching'); $('#search-results').hidden = true; $('#query').value = ''; history.replaceState(null, '', '/'); $('#query').focus(); };
+  $('#clear-search').onclick = () => { searchVersion++; $('#search-form').setAttribute('aria-busy','false'); document.body.classList.remove('searching'); $('#search-results').hidden = true; $('#query').value = ''; history.replaceState(null, '', '/'); $('#query').focus(); };
   // maxlength only constrains typing, so a long dictation must be clipped to the server's 500 limit.
   // Dictation is sentence-shaped, so it always asks the model -- and flips the switch to show why.
   if ($('#search-mic')) micToggle($('#search-mic'), {
-    onStart:() => { setMode('ai'); notice('Listening… ask your question, then press the microphone again.'); },
+    onStart:() => { setMode('ai'); notice('Listening… ask your question, then tap the voice button again.'); },
     onText:text => { $('#query').value = text.trim().slice(0, 500); },
     onDone:failure => { if (failure) notice(failure, true); else { $('#notice').hidden = true; if ($('#query').value.trim()) runSearch(); } },
   });
   const params = new URLSearchParams(location.search), q = params.get('q');
   if (params.get('mode') === 'ai') setMode('ai'); else modeChanged();
   if (q) { $('#query').value = q.slice(0, 500); runSearch({restore: true}); }
-  if (state.owner) api('/api/drafts/', undefined, 'GET').then(r => { if (r.drafts.length) { $('#draft-list').hidden = false; $('#draft-links').innerHTML = r.drafts.map(d => `<a class="box-row" href="/drafts/${d.id}"><span class="row-number" aria-hidden="true">${String(d.box).padStart(2, '0')}</span><span class="box-copy"><span class="box-category">${d.analyzing ? 'Recognizing…' : 'Continue adding'}</span><span class="box-sub">Box ${d.box} · ${d.analyzing ? 'AI is still working' : 'unfinished draft'}</span></span></a>`).join(''); } }).catch(e => notice(e.message, true));
+  if (state.owner) api('/api/drafts/', undefined, 'GET').then(r => { if (r.drafts.length) { $('#draft-list').hidden = false; $('#draft-count').textContent = `${r.drafts.length} not filed yet`; $('#draft-links').innerHTML = r.drafts.map(d => `<a class="draft-pill" href="/drafts/${d.id}">${d.analyzing ? '<canvas data-orb="48" data-busy="1" aria-hidden="true"></canvas><span class="shim">Recognizing…</span>' : '<span>Continue adding</span>'}<span class="box-sub">${d.box ? `Box ${d.box}` : 'Not filed'}</span></a>`).join(''); } }).catch(e => notice(e.message, true));
 }
 
 // Every other screen's back arrow goes to the bare index, which threw the results away. When a
@@ -586,7 +564,7 @@ if(state.draft) {
   }
   function drawAnalyzing(){
     const source=draft.photos.length?(draft.transcript?'your photos and description':'your photos'):'what you said';
-    editor.innerHTML=`${draft.photos.length?`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div>`:''}<p class="analyzing" aria-live="polite">Recognizing items from ${source}…</p><p class="hint">This keeps running if you close the page — the result is saved to this draft. Entry editing is paused until it lands, but you can still file it and leave a note.</p>${filingField()}<div class="actions">${draft.box?`<a class="button" href="/box/${draft.box}">Open Box ${draft.box}</a>`:''}</div>`;
+    editor.innerHTML=`${draft.photos.length?`<div class="photo-grid">${draft.photos.map((url,n)=>`<a href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="Uploaded photo ${n+1}"></a>`).join('')}</div>`:''}<p class="analyzing" aria-live="polite">Recognizing items from ${source}…</p>${filingField()}<div class="actions">${draft.box?`<a class="button" href="/box/${draft.box}">Open Box ${draft.box}</a>`:''}</div>`;
     wireFiling();
     clearTimeout(poll);
     poll=setTimeout(async()=>{

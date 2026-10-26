@@ -5,7 +5,7 @@ const {spawn,spawnSync}=require('node:child_process');
 (async()=>{
 const root=path.resolve(__dirname,'..');process.chdir(root);
 const directory=fs.mkdtempSync(path.join(os.tmpdir(),'inventory-browser-'));
-const python=path.join(root,'.venv/bin/python');
+const python=path.join(root,'.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python');
 const env={...process.env,DATA_DIR:directory,DEBUG:'1'};
 const setup=`from django.contrib.auth import get_user_model
 from inventory.models import Box, Item
@@ -27,16 +27,61 @@ try {
 for(let n=0;n<100;n++){try{if((await fetch(baseURL+'/health/')).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
 browser=await chromium.launch({headless:true,channel:'chrome'});const page=await browser.newPage({viewport:{width:390,height:844},baseURL});const errors=[];page.on('pageerror',e=>errors.push(e.message));const dialogs=[];page.on('dialog',d=>{dialogs.push(d.message());d.accept();});
 await page.goto(baseURL);await page.waitForLoadState('networkidle');
+assert.equal(await page.evaluate(()=>getComputedStyle(document.documentElement).colorScheme),'dark');
+assert.equal(await page.getByRole('heading',{level:1}).count(),1);
+await page.setViewportSize({width:1440,height:1000});
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'desktop must fit the viewport');
+assert.equal(await page.locator('.box-list').evaluate(el=>getComputedStyle(el).display),'block');
+await page.emulateMedia({reducedMotion:'reduce'});
+await page.waitForFunction(()=>!document.querySelector('.glass-container'));
+assert.equal(await page.locator('.index-stats h1').evaluate(el=>getComputedStyle(el).visibility),'visible');
+assert.equal(await page.locator('.index-stats h1').evaluate(el=>getComputedStyle(el).fontFamily.includes('Archivo')),true);
+await page.setViewportSize({width:390,height:844});
+assert.equal(await page.locator('.box-row').first().evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length),2);
+
 assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+// The orb reuses voice capture; no microphone is needed for this regression check.
+await page.evaluate(()=>{ window.SpeechRecognition=class { start(){} stop(){this.onend();} }; });
+await page.locator('#search-mic').click();
+assert.equal(await page.locator('#search-mic').getAttribute('aria-pressed'),'true');
+assert(await page.locator('#search-mic').evaluate(el=>el.classList.contains('listening')));
+await page.waitForFunction(()=>document.querySelector('#search-mic canvas').dataset.orbState==='listening');
+await page.locator('#search-mic').click();
+assert.equal(await page.locator('#search-mic').getAttribute('aria-pressed'),'false');
+await page.getByRole('radio',{name:'Keyword',exact:true}).check();
+// Keep one response pending so the visible loading state is verified, not just the final results.
+let holdOrbSearch;
+const heldOrbRequest=new Promise(resolve=>{holdOrbSearch=resolve;});
+await page.route('**/api/search/?q=orb-pending',route=>holdOrbSearch(route));
+await page.getByRole('searchbox').fill('orb-pending');
+await page.getByRole('button',{name:'Search',exact:true}).click();
+const orbRequest=await heldOrbRequest;
+assert.equal(await page.locator('#search-form').getAttribute('aria-busy'),'true');
+await page.waitForFunction(()=>document.querySelector('.analyzing canvas')?.dataset.orbState==='searching');
+assert(await page.locator('.analyzing canvas').evaluate(canvas=>canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data.some((v,i)=>i%4===3&&v>0)));
+await orbRequest.fulfill({json:{items:[]}});
+await page.waitForFunction(()=>document.querySelector('#search-form').getAttribute('aria-busy')==='false');
+await page.locator('#clear-search').click();
+await page.unroute('**/api/search/?q=orb-pending');
 await page.getByRole('searchbox').fill('M3');await page.getByRole('button',{name:'Search',exact:true}).click();await page.getByRole('heading',{name:'M3 screw, nut and washer assortment'}).waitFor();
 await page.getByRole('link').filter({has:page.getByRole('heading',{name:'M3 screw, nut and washer assortment'})}).click();
 await page.getByRole('button',{name:'Flag a change',exact:true}).click();await page.getByLabel('Note (optional)').fill('UI check note');await page.getByRole('button',{name:'Send flag'}).click();await page.getByRole('status').filter({hasText:'Flag sent'}).waitFor();
 await page.goto(baseURL);
 await page.getByRole('button',{name:'Owner sign in'}).click();await page.getByLabel('Username',{exact:true}).fill('preview');await page.getByLabel('Password',{exact:true}).fill('preview-test-only');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Sign out'}).waitFor();
+const hierarchy=await page.evaluate(()=>{const stats=document.querySelector('.index-stats').getBoundingClientRect(),capture=document.querySelector('.snap-bar').getBoundingClientRect(),boxes=document.querySelector('[aria-label="Your boxes"]').getBoundingClientRect();return {statsBottom:stats.bottom,captureTop:capture.top,captureBottom:capture.bottom,boxesTop:boxes.top,snapBottom:document.querySelector('[data-action="snap"]').getBoundingClientRect().bottom,photoBottom:document.querySelector('#snap-choose').getBoundingClientRect().bottom,height:innerHeight};});
+assert(hierarchy.statsBottom<=hierarchy.captureTop&&hierarchy.captureBottom<=hierarchy.boxesTop,'count/search must precede owner capture, then boxes');
+assert(hierarchy.snapBottom<hierarchy.height&&hierarchy.photoBottom<hierarchy.height,'owner photo actions must be visible on arrival');
+for(const width of [320,360,430]){
+ await page.setViewportSize({width,height:width===320?568:844});
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'phone width '+width+' must not overflow');
+ assert(await page.locator('#snap-choose').evaluate(el=>el.getBoundingClientRect().bottom<innerHeight),'photo actions must remain visible at '+width);
+}
+await page.setViewportSize({width:390,height:844});
+
 await page.goto(baseURL+'/box/3');
 await page.getByLabel('Box actions').click();await page.getByRole('button',{name:'Add manually'}).click();await page.getByLabel('Item or assortment name',{exact:true}).fill('UI check component');await page.getByLabel('Description (optional)').fill('Readable part description');await page.getByRole('button',{name:'Save item',exact:true}).click();await page.getByRole('heading',{name:'UI check component',exact:true}).waitFor();
 await page.locator('article').filter({has:page.getByRole('heading',{name:'UI check component',exact:true})}).getByRole('button',{name:'Edit / move'}).click();await page.getByLabel('Home box').selectOption('12');await page.getByRole('button',{name:'Save item',exact:true}).click();await page.waitForURL('**/box/12');
-await page.getByLabel('Box actions').click();await page.getByRole('button',{name:'Add items from photos'}).click();await page.getByLabel('Choose photos or take a photo').setInputFiles(path.join(directory,'photo.png'));await page.getByLabel('Anything we should know? (optional)').fill('mostly FPV drone parts');await page.getByRole('button',{name:'Upload & review'}).click();await page.waitForURL('**/drafts/*');
+await page.getByRole('button',{name:'Add items from photos'}).click();await page.getByLabel('Choose photos or take a photo').setInputFiles(path.join(directory,'photo.png'));await page.getByLabel('Anything we should know? (optional)').fill('mostly FPV drone parts');await page.getByRole('button',{name:'Upload & review'}).click();await page.waitForURL('**/drafts/*');
 await page.route('**/api/drafts/*/analyze/',async route=>{const req=route.request().postDataJSON();const id=route.request().url().split('/')[5];const response=await page.request.post(`/api/drafts/${id}/`,{data:{revision:req.revision,entries:[{name:'Suggested connector',description:'Check the size',aliases:'plug'}]},headers:{'X-CSRFToken':await (await page.request.get('/api/session/')).json().then(x=>x.csrfToken)}});await route.fulfill({response});});
 await page.getByRole('button',{name:'Recognize items from photos'}).click();await page.getByLabel('Item or assortment name',{exact:true}).waitFor();await page.getByLabel('Item or assortment name',{exact:true}).fill('Reviewed connector');await page.getByRole('status').filter({hasText:'Draft saved'}).waitFor();
 await page.reload();await page.getByLabel('Item or assortment name',{exact:true}).waitFor();assert.equal(await page.getByLabel('Item or assortment name',{exact:true}).inputValue(),'Reviewed connector');
@@ -65,7 +110,7 @@ await archiveBox();await page.goto(baseURL);await page.getByRole('button',{name:
 // version, and resultIndex at the first changed slot. No microphone is involved -- what this checks
 // is that a pause restarts instead of ending, and that crossing sessions neither duplicates a phrase
 // nor runs two of them together. Both are silent failures in a browser that has a working mic.
-await page.getByLabel('Box actions').click();await page.getByRole('button',{name:'Add items by talking'}).click();
+assert.equal(await page.getByRole('button',{name:'Add items by talking'}).count(),0,'the box page no longer offers talking');await page.evaluate(()=>describeForm());
 const spoken=await page.evaluate(()=>{
  let live=null;
  window.SpeechRecognition=class{
@@ -97,7 +142,7 @@ await page.goto(baseURL);await page.locator('#search-mic').waitFor({state:'visib
 // editor, because an edit lands a revision bump that would discard the result when it arrives.
 const setLock=sql=>{const r=spawnSync(python,['manage.py','shell','-c',sql],{env,stdio:'pipe'});if(r.status!==0)throw Error('lock setup failed: '+r.stderr);};
 await page.goto(baseURL+'/box/3');
-await page.getByLabel('Box actions').click();await page.getByRole('button',{name:'Add items from photos'}).click();await page.getByLabel('Choose photos or take a photo').setInputFiles(path.join(directory,'photo.png'));await page.getByRole('button',{name:'Upload & review'}).click();await page.waitForURL('**/drafts/*');
+await page.getByRole('button',{name:'Add items from photos'}).click();await page.getByLabel('Choose photos or take a photo').setInputFiles(path.join(directory,'photo.png'));await page.getByRole('button',{name:'Upload & review'}).click();await page.waitForURL('**/drafts/*');
 setLock("from inventory.models import Draft\nfrom django.utils import timezone\nfrom datetime import timedelta\nDraft.objects.filter(state='open').update(analyzing_until=timezone.now()+timedelta(seconds=60))");
 await page.reload();
 await page.getByText('Recognizing items from').waitFor();
@@ -156,7 +201,7 @@ await page.waitForURL('**/box/3');
 await page.getByRole('heading',{name:'Snapped thing',exact:true}).waitFor();
 // The talking flow carries a note too, kept separate from the words themselves.
 await page.goto(baseURL+'/box/3');
-await page.getByLabel('Box actions').click();await page.getByRole('button',{name:'Add items by talking'}).click();
+await page.evaluate(()=>describeForm());
 await page.getByLabel('What is in the box').fill('a bag of M4 screws and the grey USB hub');
 await page.getByLabel('Anything we should know? (optional)').fill('ignore the tangent about the shelf');
 await page.getByRole('button',{name:'Sort it out'}).click();
@@ -170,6 +215,12 @@ await page.goto(baseURL+'/box/3');
 const blurb=page.locator('.item-row').first().locator('.item-copy p').first();
 await page.getByRole('heading',{name:'M3 screw, nut and washer assortment'}).waitFor();
 assert.equal(await blurb.isVisible(),false,'descriptions start hidden so a box can be skimmed');
+// The select bar offers only Select all until something is ticked.
+assert.equal(await page.getByRole('button',{name:'Move to box…'}).isVisible(),false);
+await page.getByRole('checkbox',{name:'Select M3 screw, nut and washer assortment'}).check();
+assert.equal(await page.locator('#select-count').textContent(),'1 selected');
+assert.equal(await page.getByRole('button',{name:'Move to box…'}).isVisible(),true);
+await page.getByRole('checkbox',{name:'Select M3 screw, nut and washer assortment'}).uncheck();
 await page.getByRole('button',{name:'Show details'}).click();
 assert.equal(await blurb.isVisible(),true);
 await page.reload();
