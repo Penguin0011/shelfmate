@@ -186,8 +186,7 @@ body.searching .archived-boxes,body.searching [aria-label="Your boxes"]{display:
 .boxes .section-label{align-items:center;flex-wrap:wrap;padding-bottom:16px}
 .boxes .section-label h2{font-size:35px}
 .section-actions{display:flex;gap:8px}
-.nav-count{min-width:20px;height:20px;padding:0 5px;display:inline-flex;align-items:center;justify-content:center;background:var(--fill);color:var(--base);font-size:11px;letter-spacing:0;font-variant-numeric:tabular-nums}
-.button:hover .nav-count{background:var(--base);color:var(--fill)}
+.nav-count{font-size:inherit;letter-spacing:0;font-variant-numeric:tabular-nums}
 .box-list{display:block}
 .group-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid var(--rule);color:var(--ink)}
 .group-head>span:first-child{display:flex;align-items:center;gap:10px}
