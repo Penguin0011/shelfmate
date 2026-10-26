@@ -73,3 +73,9 @@ Replace the custom gradient sphere completely with the unmodified thinking-orbs@
 Scope: shared template/theme, orb integration module and upstream licensed engine files, removal of old custom orb code/font assets, dependency lockfile, and browser regressions for owner action order, initial viewport visibility, actual canvas output, and listening/loading states.
 
 Verified correction: full browser suite passes, including owner count/search → capture → boxes ordering, both photo actions visible at 390×844 on arrival, actual engine canvas output, listening/searching state changes, and all existing photo/draft/search flows. Signed-in 1440px and 390px checks have zero axe violations, zero overflow, and zero page errors. Three focused Django interface/search-mode tests pass. Real microphone capture and real-phone performance were not exercised.
+
+
+## Golden-hour warmth, mobile first
+Warm the existing palette to amber #f7b267, peach #f08a5d, pale gold #f7c99a, and soft rose #e8a3c4 on a brown-black ground. Remove lavender/blue background fields; warm the desktop lens texture and primary actions to match. Keep the established owner hierarchy and Archivo. Mobile retains a static CSS glass surface, no WebGL or backdrop blur, 16px search text to avoid input zoom, and 44px+ primary actions. Add a narrow-phone rule below 380px for the header and count/search-mode row. Validate signed-in 320, 360, 390 and 430px layouts, photo-action visibility, contrast, reduced motion and desktop rendering.
+
+Golden-hour checks passed at 320, 360, 390, 430 and 1440px: zero axe violations, zero horizontal overflow, no page errors. Both photo actions fit within a 320×568 viewport. Full workflow suite passes with the added narrow-phone regression checks. Shortened the keyword placeholder to "Search items" to fit beside the voice control on narrow phones.

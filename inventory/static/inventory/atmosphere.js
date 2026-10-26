@@ -13,12 +13,12 @@ function onPage() {
     texture.width = Math.min(innerWidth, 1920);
     texture.height = Math.min(Math.max(document.body.scrollHeight, innerHeight), 4096);
     const paint = texture.getContext('2d');
-    paint.fillStyle = '#14171e';
+    paint.fillStyle = '#211a16';
     paint.fillRect(0, 0, texture.width, texture.height);
     const light = paint.createRadialGradient(texture.width * .3, 0, 0, texture.width * .3, 0, texture.width);
-    light.addColorStop(0, '#805e65');
-    light.addColorStop(.4, '#484060');
-    light.addColorStop(1, '#131820');
+    light.addColorStop(0, '#886546');
+    light.addColorStop(.4, '#503b2b');
+    light.addColorStop(1, '#1b1510');
     paint.fillStyle = light;
     paint.fillRect(0, 0, texture.width, texture.height);
     Container.pageSnapshot = texture;

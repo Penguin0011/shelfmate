@@ -71,6 +71,13 @@ await page.getByRole('button',{name:'Owner sign in'}).click();await page.getByLa
 const hierarchy=await page.evaluate(()=>{const stats=document.querySelector('.index-stats').getBoundingClientRect(),capture=document.querySelector('.snap-bar').getBoundingClientRect(),boxes=document.querySelector('[aria-label="Your boxes"]').getBoundingClientRect();return {statsBottom:stats.bottom,captureTop:capture.top,captureBottom:capture.bottom,boxesTop:boxes.top,snapBottom:document.querySelector('[data-action="snap"]').getBoundingClientRect().bottom,photoBottom:document.querySelector('#snap-choose').getBoundingClientRect().bottom,height:innerHeight};});
 assert(hierarchy.statsBottom<=hierarchy.captureTop&&hierarchy.captureBottom<=hierarchy.boxesTop,'count/search must precede owner capture, then boxes');
 assert(hierarchy.snapBottom<hierarchy.height&&hierarchy.photoBottom<hierarchy.height,'owner photo actions must be visible on arrival');
+for(const width of [320,360,430]){
+ await page.setViewportSize({width,height:width===320?568:844});
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'phone width '+width+' must not overflow');
+ assert(await page.locator('#snap-choose').evaluate(el=>el.getBoundingClientRect().bottom<innerHeight),'photo actions must remain visible at '+width);
+}
+await page.setViewportSize({width:390,height:844});
+
 await page.goto(baseURL+'/box/3');
 await page.getByLabel('Box actions').click();await page.getByRole('button',{name:'Add manually'}).click();await page.getByLabel('Item or assortment name',{exact:true}).fill('UI check component');await page.getByLabel('Description (optional)').fill('Readable part description');await page.getByRole('button',{name:'Save item',exact:true}).click();await page.getByRole('heading',{name:'UI check component',exact:true}).waitFor();
 await page.locator('article').filter({has:page.getByRole('heading',{name:'UI check component',exact:true})}).getByRole('button',{name:'Edit / move'}).click();await page.getByLabel('Home box').selectOption('12');await page.getByRole('button',{name:'Save item',exact:true}).click();await page.waitForURL('**/box/12');

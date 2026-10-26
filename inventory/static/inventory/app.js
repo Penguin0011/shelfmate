@@ -410,7 +410,7 @@ if(new URLSearchParams(location.search).has('login'))loginForm();
 // instant; smart search reads the saved descriptions and takes seconds, so it is asked for explicitly.
 // The old always-AI-first fallback stays for the case where the owner did ask and it is unavailable.
 const MODES = {
-  name: {title:'Keyword matches', placeholder:'Search by keyword', working:'Searching your boxes…'},
+  name: {title:'Keyword matches', placeholder:'Search items', working:'Searching your boxes…'},
   ai:   {title:'Smart matches', placeholder:'Describe what you need', working:'Analyzing your inventory…'},
 };
 const mode = () => $('#search-form')?.mode?.value || 'name';
