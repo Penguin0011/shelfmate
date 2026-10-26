@@ -487,7 +487,6 @@ async function runSearch({restore = false} = {}) {
   finally { if (version === searchVersion) $('#search-form').setAttribute('aria-busy','false'); }
 }
 if ($('#search-form')) {
-  $('#orb-type')?.addEventListener('click', () => $('#query').focus());
   $('#search-form').addEventListener('submit', e => { e.preventDefault(); runSearch(); });
   // Switching mode with a query already typed re-runs it: the point of the switch is comparing.
   $('.mode-switch')?.addEventListener('change', () => { modeChanged(); if ($('#query').value.trim()) runSearch(); });
@@ -495,7 +494,7 @@ if ($('#search-form')) {
   // maxlength only constrains typing, so a long dictation must be clipped to the server's 500 limit.
   // Dictation is sentence-shaped, so it always asks the model -- and flips the switch to show why.
   if ($('#search-mic')) micToggle($('#search-mic'), {
-    onStart:() => { setMode('ai'); notice('Listening… ask your question, then tap the orb again.'); },
+    onStart:() => { setMode('ai'); notice('Listening… ask your question, then tap the voice button again.'); },
     onText:text => { $('#query').value = text.trim().slice(0, 500); },
     onDone:failure => { if (failure) notice(failure, true); else { $('#notice').hidden = true; if ($('#query').value.trim()) runSearch(); } },
   });

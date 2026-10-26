@@ -4,26 +4,6 @@ function onPage() {
   const form = document.querySelector('.ask');
   if (!form || !window.gsap || typeof Container === 'undefined') return () => {};
   const media = gsap.matchMedia();
-  media.add('(prefers-reduced-motion: no-preference)', () => {
-    const cores = gsap.utils.toArray('.orb-core');
-    const shimmer = gsap.to('.orb-core>span', {rotation:360, duration:18, repeat:-1, ease:'none'});
-    const pulse = gsap.to(cores, {scale:1.045, duration:2.4, yoyo:true, repeat:-1, ease:'power3.inOut'});
-    let previousState = '', inView = true;
-    const visibility = new IntersectionObserver(([entry]) => { inView = entry.isIntersecting; });
-    visibility.observe(document.querySelector('.search-intro'));
-    const syncOrb = () => {
-      const visible = inView && !document.hidden;
-      shimmer.paused(!visible); pulse.paused(!visible);
-      const state = form.getAttribute('aria-busy') === 'true' ? 'searching' : document.querySelector('#search-mic.listening') ? 'listening' : 'idle';
-      if (state !== previousState) {
-        previousState = state;
-        shimmer.timeScale(state === 'idle' ? 1 : state === 'listening' ? 3 : 5);
-        pulse.timeScale(state === 'idle' ? 1 : 2);
-      }
-    };
-    gsap.ticker.add(syncOrb);
-    return () => { visibility.disconnect(); gsap.ticker.remove(syncOrb); shimmer.revert(); pulse.revert(); };
-  });
   media.add('(min-width: 900px) and (prefers-reduced-motion: no-preference)', () => {
     const probe = document.createElement('canvas').getContext('webgl');
     if (!probe) return;
@@ -65,9 +45,7 @@ function onPage() {
       lens.render?.();
     };
     gsap.ticker.add(draw);
-    const intro = gsap.from('.welcome-copy,.inventory-report', {y:12, duration:.65, stagger:.06, ease:'power3.out', clearProps:'transform'});
     return () => {
-      intro.revert();
       gsap.ticker.remove(draw);
       resize.disconnect();
       lens.gl?.getExtension('WEBGL_lose_context')?.loseContext();

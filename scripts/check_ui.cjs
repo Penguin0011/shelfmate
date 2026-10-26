@@ -34,7 +34,8 @@ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)
 assert.equal(await page.locator('.box-list').evaluate(el=>getComputedStyle(el).display),'block');
 await page.emulateMedia({reducedMotion:'reduce'});
 await page.waitForFunction(()=>!document.querySelector('.glass-container'));
-assert.equal(await page.locator('.welcome h1').evaluate(el=>getComputedStyle(el).visibility),'visible');
+assert.equal(await page.locator('.index-stats h1').evaluate(el=>getComputedStyle(el).visibility),'visible');
+assert.equal(await page.locator('.index-stats h1').evaluate(el=>getComputedStyle(el).fontFamily.includes('Archivo')),true);
 await page.setViewportSize({width:390,height:844});
 assert.equal(await page.locator('.box-row').first().evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length),2);
 
@@ -44,6 +45,7 @@ await page.evaluate(()=>{ window.SpeechRecognition=class { start(){} stop(){this
 await page.locator('#search-mic').click();
 assert.equal(await page.locator('#search-mic').getAttribute('aria-pressed'),'true');
 assert(await page.locator('#search-mic').evaluate(el=>el.classList.contains('listening')));
+await page.waitForFunction(()=>document.querySelector('#search-mic canvas').dataset.orbState==='listening');
 await page.locator('#search-mic').click();
 assert.equal(await page.locator('#search-mic').getAttribute('aria-pressed'),'false');
 await page.getByRole('radio',{name:'Keyword',exact:true}).check();
@@ -55,6 +57,8 @@ await page.getByRole('searchbox').fill('orb-pending');
 await page.getByRole('button',{name:'Search',exact:true}).click();
 const orbRequest=await heldOrbRequest;
 assert.equal(await page.locator('#search-form').getAttribute('aria-busy'),'true');
+await page.waitForFunction(()=>document.querySelector('.analyzing canvas')?.dataset.orbState==='searching');
+assert(await page.locator('.analyzing canvas').evaluate(canvas=>canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data.some((v,i)=>i%4===3&&v>0)));
 await orbRequest.fulfill({json:{items:[]}});
 await page.waitForFunction(()=>document.querySelector('#search-form').getAttribute('aria-busy')==='false');
 await page.locator('#clear-search').click();
@@ -64,6 +68,9 @@ await page.getByRole('link').filter({has:page.getByRole('heading',{name:'M3 scre
 await page.getByRole('button',{name:'Flag a change',exact:true}).click();await page.getByLabel('Note (optional)').fill('UI check note');await page.getByRole('button',{name:'Send flag'}).click();await page.getByRole('status').filter({hasText:'Flag sent'}).waitFor();
 await page.goto(baseURL);
 await page.getByRole('button',{name:'Owner sign in'}).click();await page.getByLabel('Username',{exact:true}).fill('preview');await page.getByLabel('Password',{exact:true}).fill('preview-test-only');await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('button',{name:'Sign out'}).waitFor();
+const hierarchy=await page.evaluate(()=>{const stats=document.querySelector('.index-stats').getBoundingClientRect(),capture=document.querySelector('.snap-bar').getBoundingClientRect(),boxes=document.querySelector('[aria-label="Your boxes"]').getBoundingClientRect();return {statsBottom:stats.bottom,captureTop:capture.top,captureBottom:capture.bottom,boxesTop:boxes.top,snapBottom:document.querySelector('[data-action="snap"]').getBoundingClientRect().bottom,photoBottom:document.querySelector('#snap-choose').getBoundingClientRect().bottom,height:innerHeight};});
+assert(hierarchy.statsBottom<=hierarchy.captureTop&&hierarchy.captureBottom<=hierarchy.boxesTop,'count/search must precede owner capture, then boxes');
+assert(hierarchy.snapBottom<hierarchy.height&&hierarchy.photoBottom<hierarchy.height,'owner photo actions must be visible on arrival');
 await page.goto(baseURL+'/box/3');
 await page.getByLabel('Box actions').click();await page.getByRole('button',{name:'Add manually'}).click();await page.getByLabel('Item or assortment name',{exact:true}).fill('UI check component');await page.getByLabel('Description (optional)').fill('Readable part description');await page.getByRole('button',{name:'Save item',exact:true}).click();await page.getByRole('heading',{name:'UI check component',exact:true}).waitFor();
 await page.locator('article').filter({has:page.getByRole('heading',{name:'UI check component',exact:true})}).getByRole('button',{name:'Edit / move'}).click();await page.getByLabel('Home box').selectOption('12');await page.getByRole('button',{name:'Save item',exact:true}).click();await page.waitForURL('**/box/12');
