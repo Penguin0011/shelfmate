@@ -1,9 +1,4 @@
-/* Swiss — one grotesque, one blue, a strict column grid, white paper.
-   No gradients, no rounded corners, no ornament: information is the graphic.
-   Rules divide, type ranks, blue marks. Text stays black; blue carries only non-reading
-   chrome (marks, rules, fills) because #5995c9 is too light to read on white.
-   Errors are the one other colour. Controls are hand-sketched by Drawably (see the block
-   after the controls section): real inputs and buttons, SVG chrome, no CSS-faked borders. */
+/* Shared inventory layouts and controls; night.css supplies the visual theme. */
 
 @font-face{font-family:Archivo;src:url('archivo.woff2') format('woff2');font-weight:400 700;font-display:swap}
 
@@ -108,32 +103,6 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;accent-color:var(-
   display:flex;align-items:center;gap:12px;margin:12px 0;
   font-size:14px;font-weight:500;letter-spacing:0;text-transform:none;color:var(--ink);
 }
-
-/* ---------- drawably ---------- */
-/* app.js sketches buttons, checkboxes, fields, cards and badges after every render. These rules
-   only reconcile the library's chrome with the Swiss rules above: the CSS border and background
-   give way to the sketch, and the type, spacing and colours stay the app's own. */
-.drawably-host,.drawably-button,.drawably-badge{font-family:inherit}
-.drawably-badge{line-height:inherit}
-.drawably-host:focus-visible,.drawably-host :focus-visible{outline:0}   /* the sketch draws its own focus ring */
-.drawably-button.drawably-button,.drawably-button.drawably-button:hover{
-  border:0;background:none;color:var(--drawably-ink,var(--drawably-stroke));
-}
-button.drawably-button{padding:12px 18px;min-height:44px}
-.small-button.drawably-button{padding:6px 11px;min-height:36px}
-.drawably-button--solid.drawably-button,.drawably-button--solid.drawably-button:hover{color:var(--drawably-paper)}
-.drawably-button--solid.drawably-button:hover:not(:disabled){--drawably-ink:var(--accent)}
-.rust.drawably-button{--drawably-stroke:var(--accent);--drawably-fill:var(--accent)}
-/* A blue sketch fill is too light for white type — the label goes black on it. */
-.drawably-button--solid.drawably-button:hover:not(:disabled),
-.rust.drawably-button.drawably-button,.rust.drawably-button.drawably-button:hover{color:var(--ink)}
-.drawably-button:hover .badge{color:inherit}
-.drawably-inputbox,.drawably-textarea,.drawably-select{display:block;width:100%}
-.drawably-host>:is(input,textarea,select){padding-block:13px;color:var(--ink)}
-.drawably-checkbox input{width:100%;height:100%}
-.drawably-host:is(.match-label,.draft-row,.transcript-note){border:0}
-.draft-row.drawably-host{background:none}
-.ask .drawably-inputbox{flex:1;min-width:0}
 
 /* ---------- page chrome ---------- */
 .skip{position:absolute;top:-100px;left:0;z-index:10;background:var(--ink);color:var(--sheet);padding:12px 18px;font-weight:600}

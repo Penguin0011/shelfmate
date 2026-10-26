@@ -4,31 +4,6 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let csrf, dialogHandler, dialogBusy = false;
 
-// Drawably (vendored under static/inventory/drawably, exposed as window.drawably by the module script
-// in page.html) sketches SVG chrome onto real controls. Every render path writes innerHTML, so rather
-// than calling this after each one a body observer re-runs it; the :not(.drawably-host) guards make a
-// pass idempotent and a no-op pass costs a few querySelectorAll.
-const SKETCH_BUTTONS='button:not(.text-button,.ask-go,.ask-mic,.remove-photo,.dialog-top .close,.overflow button,.drawably-host),.button:not(.drawably-host),.small-button:not(.drawably-host)';
-const SKETCH_FIELDS='input:is(:not([type]),[type=text],[type=search],[type=number],[type=password]),textarea,select';
-const sketches=new WeakMap();
-function sketch(root=document){
-  const d=window.drawably; if(!d) return;
-  const wrap=el=>{ const w=document.createElement('span'); el.replaceWith(w); w.append(el); return w; };
-  // Relabelling a button with textContent= discards the SVG along with the old label (dialog submit,
-  // snap and analyze buttons all do this), so a sketch left with no drawing is torn down and redrawn.
-  root.querySelectorAll('.drawably-button:not(:has(.drawably-svg))').forEach(b=>sketches.get(b)?.destroy());
-  root.querySelectorAll(SKETCH_BUTTONS).forEach(b=>sketches.set(b,d.drawablyButton(b,{
-    variant:b.matches('.primary,.green,.rust')?'solid':'outline', tone:b.matches('.danger')?'danger':undefined,
-  })));
-  root.querySelectorAll('input[type=checkbox]:not(.mode-option input,.drawably-host input)').forEach(c=>d.drawablyCheckbox(wrap(c)));
-  root.querySelectorAll(SKETCH_FIELDS).forEach(f=>{ if(f.closest('.drawably-host')) return;
-    (f.tagName==='TEXTAREA'?d.drawablyTextarea:f.tagName==='SELECT'?d.drawablySelect:d.drawablyInput)(wrap(f)); });
-  root.querySelectorAll('.draft-row:not(.drawably-host),.transcript-note:not(.drawably-host)').forEach(c=>d.drawablyCard(c));
-  root.querySelectorAll('.match-label:not(.drawably-host)').forEach(b=>d.drawablyBadge(b));
-}
-sketch();
-new MutationObserver(records=>{ if(records.some(r=>!r.target.closest('.drawably-svg'))) sketch(); })
-  .observe(document.body,{childList:true,subtree:true});
 async function refreshSession(signal) {
   const response = await fetch('/api/session/', {credentials:'same-origin', cache:'no-store', signal});
   if (!response.ok) throw Error('Unable to start a session. Try again.');
@@ -476,6 +451,7 @@ async function runSearch({restore = false} = {}) {
   const q = $('#query').value.trim(); if (!q) { $('#query').focus(); return; }
   const wanted = mode(), version = ++searchVersion;
   document.body.classList.add('searching');
+  $('#search-form').setAttribute('aria-busy','true');
   history.replaceState(null, '', `/?${searchQuery(q, wanted)}`);
   const key = `ai-search:${q}`;
   const hit = restore && wanted === 'ai' && cached(key);
@@ -508,16 +484,18 @@ async function runSearch({restore = false} = {}) {
     if (ai) cached(key, matches);
     showResults(q, matches, ai);
   } catch (error) { if (version === searchVersion) { $('#result-list').innerHTML = ''; const p = document.createElement('p'); p.className = 'pad'; p.textContent = error.message; $('#result-list').append(p); } }
+  finally { if (version === searchVersion) $('#search-form').setAttribute('aria-busy','false'); }
 }
 if ($('#search-form')) {
+  $('#orb-type')?.addEventListener('click', () => $('#query').focus());
   $('#search-form').addEventListener('submit', e => { e.preventDefault(); runSearch(); });
   // Switching mode with a query already typed re-runs it: the point of the switch is comparing.
   $('.mode-switch')?.addEventListener('change', () => { modeChanged(); if ($('#query').value.trim()) runSearch(); });
-  $('#clear-search').onclick = () => { searchVersion++; document.body.classList.remove('searching'); $('#search-results').hidden = true; $('#query').value = ''; history.replaceState(null, '', '/'); $('#query').focus(); };
+  $('#clear-search').onclick = () => { searchVersion++; $('#search-form').setAttribute('aria-busy','false'); document.body.classList.remove('searching'); $('#search-results').hidden = true; $('#query').value = ''; history.replaceState(null, '', '/'); $('#query').focus(); };
   // maxlength only constrains typing, so a long dictation must be clipped to the server's 500 limit.
   // Dictation is sentence-shaped, so it always asks the model -- and flips the switch to show why.
   if ($('#search-mic')) micToggle($('#search-mic'), {
-    onStart:() => { setMode('ai'); notice('Listening… ask your question, then press the microphone again.'); },
+    onStart:() => { setMode('ai'); notice('Listening… ask your question, then tap the orb again.'); },
     onText:text => { $('#query').value = text.trim().slice(0, 500); },
     onDone:failure => { if (failure) notice(failure, true); else { $('#notice').hidden = true; if ($('#query').value.trim()) runSearch(); } },
   });
