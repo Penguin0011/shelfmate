@@ -5,7 +5,7 @@ const {spawn,spawnSync}=require('node:child_process');
 (async()=>{
 const root=path.resolve(__dirname,'..');process.chdir(root);
 const directory=fs.mkdtempSync(path.join(os.tmpdir(),'inventory-browser-'));
-const python=path.join(root,'.venv/bin/python');
+const python=path.join(root,'.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python');
 const env={...process.env,DATA_DIR:directory,DEBUG:'1'};
 const setup=`from django.contrib.auth import get_user_model
 from inventory.models import Box, Item
@@ -27,7 +27,38 @@ try {
 for(let n=0;n<100;n++){try{if((await fetch(baseURL+'/health/')).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
 browser=await chromium.launch({headless:true,channel:'chrome'});const page=await browser.newPage({viewport:{width:390,height:844},baseURL});const errors=[];page.on('pageerror',e=>errors.push(e.message));const dialogs=[];page.on('dialog',d=>{dialogs.push(d.message());d.accept();});
 await page.goto(baseURL);await page.waitForLoadState('networkidle');
+assert.equal(await page.evaluate(()=>getComputedStyle(document.documentElement).colorScheme),'dark');
+assert.equal(await page.getByRole('heading',{level:1}).count(),1);
+await page.setViewportSize({width:1440,height:1000});
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'desktop must fit the viewport');
+assert.equal(await page.locator('.box-list').evaluate(el=>getComputedStyle(el).display),'block');
+await page.emulateMedia({reducedMotion:'reduce'});
+await page.waitForFunction(()=>!document.querySelector('.glass-container'));
+assert.equal(await page.locator('.welcome h1').evaluate(el=>getComputedStyle(el).visibility),'visible');
+await page.setViewportSize({width:390,height:844});
+assert.equal(await page.locator('.box-row').first().evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length),2);
+
 assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+// The orb reuses voice capture; no microphone is needed for this regression check.
+await page.evaluate(()=>{ window.SpeechRecognition=class { start(){} stop(){this.onend();} }; });
+await page.locator('#search-mic').click();
+assert.equal(await page.locator('#search-mic').getAttribute('aria-pressed'),'true');
+assert(await page.locator('#search-mic').evaluate(el=>el.classList.contains('listening')));
+await page.locator('#search-mic').click();
+assert.equal(await page.locator('#search-mic').getAttribute('aria-pressed'),'false');
+await page.getByRole('radio',{name:'Keyword',exact:true}).check();
+// Keep one response pending so the visible loading state is verified, not just the final results.
+let holdOrbSearch;
+const heldOrbRequest=new Promise(resolve=>{holdOrbSearch=resolve;});
+await page.route('**/api/search/?q=orb-pending',route=>holdOrbSearch(route));
+await page.getByRole('searchbox').fill('orb-pending');
+await page.getByRole('button',{name:'Search',exact:true}).click();
+const orbRequest=await heldOrbRequest;
+assert.equal(await page.locator('#search-form').getAttribute('aria-busy'),'true');
+await orbRequest.fulfill({json:{items:[]}});
+await page.waitForFunction(()=>document.querySelector('#search-form').getAttribute('aria-busy')==='false');
+await page.locator('#clear-search').click();
+await page.unroute('**/api/search/?q=orb-pending');
 await page.getByRole('searchbox').fill('M3');await page.getByRole('button',{name:'Search',exact:true}).click();await page.getByRole('heading',{name:'M3 screw, nut and washer assortment'}).waitFor();
 await page.getByRole('link').filter({has:page.getByRole('heading',{name:'M3 screw, nut and washer assortment'})}).click();
 await page.getByRole('button',{name:'Flag a change',exact:true}).click();await page.getByLabel('Note (optional)').fill('UI check note');await page.getByRole('button',{name:'Send flag'}).click();await page.getByRole('status').filter({hasText:'Flag sent'}).waitFor();
