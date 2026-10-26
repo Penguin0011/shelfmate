@@ -5,7 +5,7 @@
 :root{
   color-scheme:dark;
   --base:#0a0a0e;--glow-1:#343b57;--glow-2:#483447;
-  /* Grainient bands, MORNING palette. */
+  /* Background bands (atmosphere.js), MORNING palette. */
   --band-0:#0a0a0e;--band-1:#f6c38e;--band-2:#bfd4f5;--band-3:#f4b4c4;
   --ink:#F7F7F7;--prose:#D9D9D9;--label:#CCCCCC;--muted:#C4C4C4;--quiet:#B5B5B5;
   --hair:rgba(240,240,240,.1);--rule:rgba(240,240,240,.22);--line:rgba(240,240,240,.3);
@@ -28,13 +28,13 @@ h1,h2,h3,p{margin:0;overflow-wrap:anywhere}
 h1,h2,h3{color:var(--ink);font-weight:500}
 ::selection{background:var(--fill);color:var(--base)}
 
-/* The atmosphere: an animated Grainient band (atmosphere.js) over corner-glow fallbacks, then a scrim. */
+/* The atmosphere: an animated WebGL band (atmosphere.js) over corner-glow fallbacks, then a scrim. */
 .atmos{
   position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none;
   background:radial-gradient(ellipse at 15% 25%,var(--glow-1),transparent 65%),radial-gradient(ellipse at 80% 85%,var(--glow-2),transparent 70%),var(--base);
 }
 .silk{position:absolute;inset:0}
-.silk .grainient-canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.silk .band-canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
 /* Darker than dash.clouddev.dad's 33% scrim: its bright bands would put grey text under AA. */
 .veil{position:absolute;inset:0;background:linear-gradient(180deg,#080808b8,#080808c4 45%,#080808e0)}
 @keyframes shim{from{background-position:100% 0}to{background-position:-100% 0}}

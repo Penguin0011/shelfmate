@@ -1,7 +1,5 @@
 # Third-party notices
 
-- `inventory/static/inventory/vendor/grainient/` — Grainient from React Bits by David Haz, ported to plain JavaScript,
-  MIT License with Commons Clause (see `LICENSE` in that directory).
 - `inventory/static/inventory/vendor/thinking-orbs/` — thinking-orbs 0.3.2 from Libraries.dev (see `LICENSE` in that directory).
 - `inventory/static/inventory/archivo.woff2`, `archivo-narrow.woff2` — Archivo and Archivo Narrow by Omnibus-Type,
   distributed under the SIL Open Font License 1.1 (<https://openfontlicense.org>).

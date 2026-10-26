@@ -83,8 +83,9 @@ Golden-hour checks passed at 320, 360, 390, 430 and 1440px: zero axe violations,
 ## Mockup reskin (2026-10-26)
 
 Follows the approved canvas (Main, Search, Box, Draft, Inbox, Phone). Dark, hairline-ruled, one typeface (self-hosted Archivo,
-weight 300 for the huge numerals), square buttons, no cards. The background is the same Grainient shader and settings as
-dash.clouddev.dad (vendored React Bits port, `atmosphere.js`), animated here through its own drift and animated grain, with a
+weight 300 for the huge numerals), square buttons, no cards. The background is Shelfmate's own WebGL band shader (`atmosphere.js`), written to
+match dash.clouddev.dad's look: OKLab ramp, two mirrored bands at 40°, silk shading and grain. Unlike the dashboard it drifts
+and its grain animates. No third-party shader code is vendored. It sits under a
 deeper scrim than the dashboard's so grey text holds 4.5:1 over its brightest band. Palette lives in the `--band-*` tokens;
 `data-palette="night"` on `<html>` switches to the night set. Thinking Orbs use the vendored upstream engine on one
 requestAnimationFrame loop. GSAP, liquid-glass, Drawably, `night.css` and the raster grain are removed.
